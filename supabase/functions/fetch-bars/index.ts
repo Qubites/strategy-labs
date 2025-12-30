@@ -69,38 +69,54 @@ serve(async (req) => {
     
     const alpacaTimeframe = timeframeMap[timeframe] || '1Min';
 
-    // Fetch from Alpaca Market Data API
-    const alpacaUrl = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=${alpacaTimeframe}&start=${start}&end=${end}&limit=10000&adjustment=split`;
-    
-    console.log(`Calling Alpaca API: ${alpacaUrl}`);
+    // Fetch from Alpaca Market Data API with pagination
+    let allBars: any[] = [];
+    let pageToken: string | null = null;
+    let pageCount = 0;
 
-    const alpacaResponse = await fetch(alpacaUrl, {
-      headers: {
-        'APCA-API-KEY-ID': ALPACA_API_KEY,
-        'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY,
-      },
-    });
-
-    if (!alpacaResponse.ok) {
-      const errorText = await alpacaResponse.text();
-      console.error('Alpaca API error:', alpacaResponse.status, errorText);
+    do {
+      let alpacaUrl = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=${alpacaTimeframe}&start=${start}&end=${end}&limit=10000&adjustment=split`;
+      if (pageToken) {
+        alpacaUrl += `&page_token=${pageToken}`;
+      }
       
-      await supabase
-        .from('market_data_jobs')
-        .update({ status: 'failed', error: errorText, finished_at: new Date().toISOString() })
-        .eq('id', job.id);
+      console.log(`Calling Alpaca API (page ${pageCount + 1}): ${alpacaUrl.split('&page_token')[0]}...`);
+
+      const alpacaResponse = await fetch(alpacaUrl, {
+        headers: {
+          'APCA-API-KEY-ID': ALPACA_API_KEY,
+          'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY,
+        },
+      });
+
+      if (!alpacaResponse.ok) {
+        const errorText = await alpacaResponse.text();
+        console.error('Alpaca API error:', alpacaResponse.status, errorText);
+        
+        await supabase
+          .from('market_data_jobs')
+          .update({ status: 'failed', error: errorText, finished_at: new Date().toISOString() })
+          .eq('id', job.id);
+        
+        throw new Error(`Alpaca API error: ${alpacaResponse.status} - ${errorText}`);
+      }
+
+      const alpacaData = await alpacaResponse.json();
+      const bars = alpacaData.bars || [];
       
-      throw new Error(`Alpaca API error: ${alpacaResponse.status} - ${errorText}`);
-    }
+      console.log(`Page ${pageCount + 1}: Received ${bars.length} bars`);
+      
+      allBars = allBars.concat(bars);
+      pageToken = alpacaData.next_page_token || null;
+      pageCount++;
+      
+    } while (pageToken);
 
-    const alpacaData = await alpacaResponse.json();
-    const bars = alpacaData.bars || [];
+    console.log(`Total bars fetched: ${allBars.length} across ${pageCount} page(s)`);
 
-    console.log(`Received ${bars.length} bars from Alpaca`);
-
-    if (bars.length > 0) {
+    if (allBars.length > 0) {
       // Transform bars to our format
-      const marketBars = bars.map((bar: any) => ({
+      const marketBars = allBars.map((bar: any) => ({
         symbol,
         timeframe,
         ts: bar.t,
@@ -111,14 +127,19 @@ serve(async (req) => {
         v: bar.v,
       }));
 
-      // Upsert bars (on conflict update)
-      const { error: insertError } = await supabase
-        .from('market_bars')
-        .upsert(marketBars, { onConflict: 'symbol,timeframe,ts' });
+      // Insert in batches of 1000 to avoid timeouts
+      const BATCH_SIZE = 1000;
+      for (let i = 0; i < marketBars.length; i += BATCH_SIZE) {
+        const batch = marketBars.slice(i, i + BATCH_SIZE);
+        const { error: insertError } = await supabase
+          .from('market_bars')
+          .upsert(batch, { onConflict: 'symbol,timeframe,ts' });
 
-      if (insertError) {
-        console.error('Error inserting bars:', insertError);
-        throw new Error('Failed to insert bars');
+        if (insertError) {
+          console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, insertError);
+          throw new Error('Failed to insert bars');
+        }
+        console.log(`Inserted batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(marketBars.length / BATCH_SIZE)}`);
       }
     }
 
@@ -127,7 +148,7 @@ serve(async (req) => {
       .from('market_data_jobs')
       .update({ 
         status: 'completed', 
-        bar_count: bars.length,
+        bar_count: allBars.length,
         finished_at: new Date().toISOString() 
       })
       .eq('id', job.id);
@@ -135,7 +156,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       job_id: job.id,
-      bar_count: bars.length,
+      bar_count: allBars.length,
       symbol,
       timeframe,
       start,
