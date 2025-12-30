@@ -6,13 +6,15 @@ import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AICoachCard } from '@/components/AICoachCard';
+import { AIAdviceHistory } from '@/components/AIAdviceHistory';
+import { DuplicateBotDialog } from '@/components/DuplicateBotDialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
   ArrowLeft,
   Play,
-  Copy,
   Settings2,
   History,
   FileText,
@@ -21,6 +23,8 @@ import {
   DollarSign,
   BarChart3,
   AlertTriangle,
+  ArrowUpRight,
+  Loader2,
 } from 'lucide-react';
 import type { Bot as BotType, BotVersion, Run, Trade, ParamSchema } from '@/types/trading';
 
@@ -33,6 +37,7 @@ export default function BotDetail() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [schema, setSchema] = useState<ParamSchema | null>(null);
   const [loading, setLoading] = useState(true);
+  const [promoting, setPromoting] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) loadBotDetails();
@@ -100,6 +105,41 @@ export default function BotDetail() {
     }
   }
 
+  async function handlePromote(versionId: string, target: string) {
+    setPromoting(versionId);
+    try {
+      const { data, error } = await supabase.functions.invoke('promote-bot', {
+        body: { bot_version_id: versionId, target },
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        toast.error(data.error, {
+          description: data.details?.join('\n'),
+        });
+        return;
+      }
+
+      toast.success(`Version promoted to ${target}`);
+      loadBotDetails();
+    } catch (error) {
+      console.error('Error promoting:', error);
+      toast.error('Failed to promote version');
+    } finally {
+      setPromoting(null);
+    }
+  }
+
+  function getNextPromotion(status: string): string | null {
+    switch (status) {
+      case 'draft': return 'backtested';
+      case 'backtested': return 'approved_paper';
+      case 'approved_paper': return 'approved_live';
+      default: return null;
+    }
+  }
+
   const latestVersion = versions[0];
   const latestParams = latestVersion ? JSON.parse(latestVersion.params_json) : {};
   const latestRiskLimits = latestVersion ? JSON.parse(latestVersion.risk_limits_json) : {};
@@ -145,6 +185,11 @@ export default function BotDetail() {
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
+        <DuplicateBotDialog 
+          botVersionId={latestVersion?.id || ''} 
+          botName={bot.name}
+          onDuplicated={loadBotDetails}
+        />
         <Link to={`/bots/${bot.id}/run`}>
           <Button className="gap-2">
             <Play className="w-4 h-4" />
@@ -163,6 +208,22 @@ export default function BotDetail() {
           <span className="text-xs font-mono text-muted-foreground">
             Hash: {latestVersion?.version_hash?.slice(0, 8)}
           </span>
+          {latestVersion && getNextPromotion(latestVersion.status) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePromote(latestVersion.id, getNextPromotion(latestVersion.status)!)}
+              disabled={promoting === latestVersion.id}
+              className="gap-1 ml-auto"
+            >
+              {promoting === latestVersion.id ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <ArrowUpRight className="w-3 h-3" />
+              )}
+              Promote to {getNextPromotion(latestVersion.status)}
+            </Button>
+          )}
         </div>
 
         {/* Metrics */}
@@ -209,6 +270,10 @@ export default function BotDetail() {
             <TabsTrigger value="trades" className="gap-2">
               <FileText className="w-4 h-4" />
               Trades
+            </TabsTrigger>
+            <TabsTrigger value="ai" className="gap-2">
+              <Sparkles className="w-4 h-4" />
+              AI Advice
             </TabsTrigger>
           </TabsList>
 
@@ -267,23 +332,45 @@ export default function BotDetail() {
                     <th>Status</th>
                     <th>Params Hash</th>
                     <th>Created</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {versions.map((version) => (
-                    <tr key={version.id}>
-                      <td className="font-mono">v{version.version_number}</td>
-                      <td>
-                        <StatusBadge status={version.status} />
-                      </td>
-                      <td className="font-mono text-xs text-muted-foreground">
-                        {version.params_hash}
-                      </td>
-                      <td className="text-sm text-muted-foreground">
-                        {format(new Date(version.created_at), 'MMM d, yyyy HH:mm')}
-                      </td>
-                    </tr>
-                  ))}
+                  {versions.map((version) => {
+                    const nextPromotion = getNextPromotion(version.status);
+                    return (
+                      <tr key={version.id}>
+                        <td className="font-mono">v{version.version_number}</td>
+                        <td>
+                          <StatusBadge status={version.status} />
+                        </td>
+                        <td className="font-mono text-xs text-muted-foreground">
+                          {version.params_hash}
+                        </td>
+                        <td className="text-sm text-muted-foreground">
+                          {format(new Date(version.created_at), 'MMM d, yyyy HH:mm')}
+                        </td>
+                        <td>
+                          {nextPromotion && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handlePromote(version.id, nextPromotion)}
+                              disabled={promoting === version.id}
+                              className="gap-1"
+                            >
+                              {promoting === version.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <ArrowUpRight className="w-3 h-3" />
+                              )}
+                              Promote
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -378,6 +465,19 @@ export default function BotDetail() {
                   No trades yet. Complete a backtest to see trades.
                 </div>
               )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="ai">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AICoachCard 
+                botVersionId={latestVersion?.id || ''} 
+                onAdviceApplied={loadBotDetails}
+              />
+              <div>
+                <h3 className="font-medium mb-4">Advice History</h3>
+                <AIAdviceHistory botVersionId={latestVersion?.id || ''} />
+              </div>
             </div>
           </TabsContent>
         </Tabs>
