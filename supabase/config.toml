@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.backtest-worker]
 verify_jwt = false
+
+[functions.combine-csv]
+verify_jwt = false
+
+[functions.duplicate-bot]
+verify_jwt = false
+
+[functions.promote-bot]
+verify_jwt = false

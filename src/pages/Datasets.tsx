@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Download, Database, Calendar, Clock, Loader2, Trash2, FileDown } from 'lucide-react';
+import { Download, Database, Loader2, Trash2, FileDown, Combine, X } from 'lucide-react';
 import type { Dataset } from '@/types/trading';
 import { format } from 'date-fns';
 
@@ -34,6 +35,8 @@ export default function Datasets() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [combining, setCombining] = useState(false);
+  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
   
   // Form state
   const [symbol, setSymbol] = useState('QQQ');
@@ -157,6 +160,52 @@ export default function Datasets() {
     }
   }
 
+  async function handleCombineExport() {
+    if (selectedDatasets.length < 2) {
+      toast.error('Select at least 2 datasets to combine');
+      return;
+    }
+
+    setCombining(true);
+    try {
+      toast.info('Combining datasets...');
+
+      const datasetsToExport = datasets
+        .filter(ds => selectedDatasets.includes(ds.id))
+        .map(ds => ({
+          symbol: ds.symbol,
+          timeframe: ds.timeframe,
+          start: ds.start_ts,
+          end: ds.end_ts,
+        }));
+
+      const { data, error } = await supabase.functions.invoke('combine-csv', {
+        body: { datasets: datasetsToExport },
+      });
+
+      if (error) throw error;
+
+      // Create download link
+      const blob = new Blob([data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `combined_datasets_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success(`Combined ${selectedDatasets.length} datasets`);
+      setSelectedDatasets([]);
+    } catch (error) {
+      console.error('Error combining CSVs:', error);
+      toast.error('Failed to combine CSVs');
+    } finally {
+      setCombining(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     try {
       const { error } = await supabase
@@ -166,10 +215,27 @@ export default function Datasets() {
 
       if (error) throw error;
       toast.success('Dataset deleted');
+      setSelectedDatasets(prev => prev.filter(dsId => dsId !== id));
       loadDatasets();
     } catch (error) {
       console.error('Error deleting dataset:', error);
       toast.error('Failed to delete dataset');
+    }
+  }
+
+  function toggleDatasetSelection(id: string) {
+    setSelectedDatasets(prev => 
+      prev.includes(id) 
+        ? prev.filter(dsId => dsId !== id)
+        : [...prev, id]
+    );
+  }
+
+  function toggleSelectAll() {
+    if (selectedDatasets.length === datasets.length) {
+      setSelectedDatasets([]);
+    } else {
+      setSelectedDatasets(datasets.map(ds => ds.id));
     }
   }
 
@@ -271,6 +337,42 @@ export default function Datasets() {
           </div>
         </div>
 
+        {/* Bulk Actions Toolbar */}
+        {selectedDatasets.length > 0 && (
+          <div className="terminal-card bg-primary/10 border-primary/30">
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">
+                  {selectedDatasets.length} dataset{selectedDatasets.length > 1 ? 's' : ''} selected
+                </span>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleCombineExport}
+                  disabled={combining || selectedDatasets.length < 2}
+                  className="gap-2"
+                >
+                  {combining ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Combine className="w-4 h-4" />
+                  )}
+                  Combine and Download CSV
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedDatasets([])}
+                className="gap-2"
+              >
+                <X className="w-4 h-4" />
+                Clear Selection
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Datasets Table */}
         <div className="terminal-card">
           <div className="terminal-header">
@@ -287,6 +389,12 @@ export default function Datasets() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th className="w-10">
+                      <Checkbox
+                        checked={selectedDatasets.length === datasets.length && datasets.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </th>
                     <th>Symbol</th>
                     <th>Timeframe</th>
                     <th>Session</th>
@@ -299,7 +407,16 @@ export default function Datasets() {
                 </thead>
                 <tbody>
                   {datasets.map((ds) => (
-                    <tr key={ds.id}>
+                    <tr 
+                      key={ds.id}
+                      className={selectedDatasets.includes(ds.id) ? 'bg-primary/5' : ''}
+                    >
+                      <td>
+                        <Checkbox
+                          checked={selectedDatasets.includes(ds.id)}
+                          onCheckedChange={() => toggleDatasetSelection(ds.id)}
+                        />
+                      </td>
                       <td className="font-bold text-primary">{ds.symbol}</td>
                       <td>{ds.timeframe}</td>
                       <td>{ds.session}</td>
