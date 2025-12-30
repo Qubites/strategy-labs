@@ -15,6 +15,51 @@ export interface Dataset {
   created_at: string;
 }
 
+export interface Instrument {
+  id: string;
+  symbol: string;
+  market: string;
+  provider: string;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface MarketDataJob {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  start_ts: string;
+  end_ts: string;
+  status: string;
+  bar_count: number;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface MarketBar {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  ts: string;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+  created_at: string;
+}
+
+export interface BotInstance {
+  id: string;
+  bot_version_id: string;
+  label: string;
+  mode_default: string;
+  is_running: boolean;
+  is_paused: boolean;
+  created_at: string;
+}
+
 export interface ParamDefinition {
   key: string;
   type: 'int' | 'float' | 'bool' | 'enum';
@@ -84,6 +129,7 @@ export interface Run {
   dataset_id: string | null;
   start_ts: string;
   end_ts: string | null;
+  paused_at?: string | null;
   stop_rule_json: string | null;
   cost_model_json: string | null;
   status: string;
@@ -135,4 +181,19 @@ export interface CostModel {
   commission_per_share: number;
   slippage_per_share: number;
   fixed_cost_per_trade: number;
+}
+
+export interface AIAdvice {
+  id: string;
+  bot_version_id: string;
+  run_id: string | null;
+  created_at: string;
+  advice_window: string;
+  goal: string;
+  summary: string | null;
+  recommendations_json: string | null;
+  confidence: number | null;
+  applied: boolean;
+  applied_bot_version_id: string | null;
+  applied_by: string | null;
 }
