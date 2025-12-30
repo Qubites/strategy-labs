@@ -81,6 +81,44 @@ export type Database = {
           },
         ]
       }
+      bot_instances: {
+        Row: {
+          bot_version_id: string
+          created_at: string
+          id: string
+          is_paused: boolean
+          is_running: boolean
+          label: string
+          mode_default: string
+        }
+        Insert: {
+          bot_version_id: string
+          created_at?: string
+          id?: string
+          is_paused?: boolean
+          is_running?: boolean
+          label?: string
+          mode_default?: string
+        }
+        Update: {
+          bot_version_id?: string
+          created_at?: string
+          id?: string
+          is_paused?: boolean
+          is_running?: boolean
+          label?: string
+          mode_default?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_instances_bot_version_id_fkey"
+            columns: ["bot_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bot_versions: {
         Row: {
           bot_id: string
@@ -202,6 +240,33 @@ export type Database = {
         }
         Relationships: []
       }
+      instruments: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          market: string
+          provider: string
+          symbol: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          market?: string
+          provider?: string
+          symbol: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          market?: string
+          provider?: string
+          symbol?: string
+        }
+        Relationships: []
+      }
       logs: {
         Row: {
           category: string
@@ -242,6 +307,84 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      market_bars: {
+        Row: {
+          c: number
+          created_at: string
+          h: number
+          id: string
+          l: number
+          o: number
+          symbol: string
+          timeframe: string
+          ts: string
+          v: number
+        }
+        Insert: {
+          c: number
+          created_at?: string
+          h: number
+          id?: string
+          l: number
+          o: number
+          symbol: string
+          timeframe: string
+          ts: string
+          v: number
+        }
+        Update: {
+          c?: number
+          created_at?: string
+          h?: number
+          id?: string
+          l?: number
+          o?: number
+          symbol?: string
+          timeframe?: string
+          ts?: string
+          v?: number
+        }
+        Relationships: []
+      }
+      market_data_jobs: {
+        Row: {
+          bar_count: number | null
+          created_at: string
+          end_ts: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          start_ts: string
+          status: string
+          symbol: string
+          timeframe: string
+        }
+        Insert: {
+          bar_count?: number | null
+          created_at?: string
+          end_ts: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          start_ts: string
+          status?: string
+          symbol: string
+          timeframe: string
+        }
+        Update: {
+          bar_count?: number | null
+          created_at?: string
+          end_ts?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          start_ts?: string
+          status?: string
+          symbol?: string
+          timeframe?: string
+        }
+        Relationships: []
       }
       run_metrics: {
         Row: {
@@ -319,6 +462,7 @@ export type Database = {
           dataset_id: string | null
           end_ts: string | null
           id: string
+          paused_at: string | null
           run_type: string
           start_ts: string
           status: string
@@ -331,6 +475,7 @@ export type Database = {
           dataset_id?: string | null
           end_ts?: string | null
           id?: string
+          paused_at?: string | null
           run_type: string
           start_ts?: string
           status?: string
@@ -343,6 +488,7 @@ export type Database = {
           dataset_id?: string | null
           end_ts?: string | null
           id?: string
+          paused_at?: string | null
           run_type?: string
           start_ts?: string
           status?: string
