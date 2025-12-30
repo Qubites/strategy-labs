@@ -1,1 +1,13 @@
 project_id = "wkjwbbaassjsnzfizlhs"
+
+[functions.fetch-bars]
+verify_jwt = false
+
+[functions.export-csv]
+verify_jwt = false
+
+[functions.run-control]
+verify_jwt = false
+
+[functions.backtest-worker]
+verify_jwt = false

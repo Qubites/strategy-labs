@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Download, Database, Calendar, Clock, Loader2, Trash2 } from 'lucide-react';
+import { Download, Database, Calendar, Clock, Loader2, Trash2, FileDown } from 'lucide-react';
 import type { Dataset } from '@/types/trading';
 import { format } from 'date-fns';
 
@@ -77,11 +77,27 @@ export default function Datasets() {
 
     setDownloading(true);
     try {
-      // For MVP, we'll simulate the download and create a dataset record
-      // In production, this would call an edge function that fetches from Alpaca
+      // Call edge function to fetch bars from Alpaca
+      const { data, error } = await supabase.functions.invoke('fetch-bars', {
+        body: {
+          symbol: symbol.toUpperCase(),
+          timeframe,
+          start: new Date(startDate).toISOString(),
+          end: new Date(endDate).toISOString(),
+          provider: 'alpaca',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Create dataset record linking to the fetched bars
       const dataset_hash = `${symbol}_${timeframe}_${startDate}_${endDate}_${Date.now()}`;
       
-      const { data, error } = await supabase
+      const { error: insertError } = await supabase
         .from('datasets')
         .insert({
           symbol: symbol.toUpperCase(),
@@ -92,20 +108,51 @@ export default function Datasets() {
           end_ts: new Date(endDate).toISOString(),
           source: 'alpaca',
           dataset_hash,
-          bar_count: Math.floor(Math.random() * 5000) + 1000, // Simulated
-        })
-        .select()
-        .single();
+          bar_count: data.bar_count || 0,
+        });
+
+      if (insertError) throw insertError;
+
+      toast.success(`Downloaded ${data.bar_count} bars successfully`);
+      loadDatasets();
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to fetch data');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleExportCsv(dataset: Dataset) {
+    try {
+      toast.info('Preparing CSV export...');
+      
+      const { data, error } = await supabase.functions.invoke('export-csv', {
+        body: {
+          symbol: dataset.symbol,
+          timeframe: dataset.timeframe,
+          start: dataset.start_ts,
+          end: dataset.end_ts,
+        },
+      });
 
       if (error) throw error;
 
-      toast.success('Dataset created successfully');
-      loadDatasets();
+      // Create download link
+      const blob = new Blob([data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dataset.symbol}_${dataset.timeframe}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success('CSV downloaded');
     } catch (error) {
-      console.error('Error creating dataset:', error);
-      toast.error('Failed to create dataset');
-    } finally {
-      setDownloading(false);
+      console.error('Error exporting CSV:', error);
+      toast.error('Failed to export CSV. Make sure data has been fetched.');
     }
   }
 
@@ -264,12 +311,21 @@ export default function Datasets() {
                       <td className="text-xs text-muted-foreground">
                         {format(new Date(ds.created_at), 'MMM d, HH:mm')}
                       </td>
-                      <td>
+                      <td className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportCsv(ds)}
+                          title="Export CSV"
+                        >
+                          <FileDown className="w-4 h-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDelete(ds.id)}
                           className="text-destructive hover:text-destructive"
+                          title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
