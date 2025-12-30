@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.promote-bot]
 verify_jwt = false
+
+[functions.ai-advice]
+verify_jwt = false
+
+[functions.ai-apply]
+verify_jwt = false
