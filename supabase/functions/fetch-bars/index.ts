@@ -9,6 +9,7 @@ const corsHeaders = {
 interface FetchBarsRequest {
   symbol: string;
   timeframe: string;
+  session?: string; // RTH, EXT, or ALL
   start: string;
   end: string;
   provider?: string;
@@ -20,9 +21,9 @@ serve(async (req) => {
   }
 
   try {
-    const { symbol, timeframe, start, end, provider = 'alpaca' } = await req.json() as FetchBarsRequest;
+    const { symbol, timeframe, session = 'ALL', start, end, provider = 'alpaca' } = await req.json() as FetchBarsRequest;
 
-    console.log(`Fetching bars for ${symbol} ${timeframe} from ${start} to ${end}`);
+    console.log(`Fetching bars for ${symbol} ${timeframe} (session: ${session}) from ${start} to ${end}`);
 
     const ALPACA_API_KEY = Deno.env.get('ALPACA_API_KEY');
     const ALPACA_SECRET_KEY = Deno.env.get('ALPACA_SECRET_KEY');
@@ -112,11 +113,44 @@ serve(async (req) => {
       
     } while (pageToken);
 
-    console.log(`Total bars fetched: ${allBars.length} across ${pageCount} page(s)`);
+    console.log(`Total bars fetched from Alpaca: ${allBars.length} across ${pageCount} page(s)`);
 
-    if (allBars.length > 0) {
+    // Filter bars by session if not ALL
+    let filteredBars = allBars;
+    if (session !== 'ALL') {
+      filteredBars = allBars.filter((bar: any) => {
+        const barTime = new Date(bar.t);
+        const hours = barTime.getUTCHours();
+        const minutes = barTime.getUTCMinutes();
+        const timeInMinutes = hours * 60 + minutes;
+        
+        // RTH: 9:30 AM - 4:00 PM ET (14:30 - 21:00 UTC during EST, 13:30 - 20:00 during EDT)
+        // Using approximate UTC times that cover both EST/EDT
+        // Pre-market: 4:00 AM - 9:30 AM ET (9:00 - 14:30 UTC)
+        // After-hours: 4:00 PM - 8:00 PM ET (21:00 - 1:00 UTC)
+        
+        // For simplicity, we'll use the bar's local market time
+        // Alpaca returns timestamps in UTC, market opens at 9:30 ET
+        // 9:30 ET = 14:30 UTC (winter) or 13:30 UTC (summer)
+        // 4:00 PM ET = 21:00 UTC (winter) or 20:00 UTC (summer)
+        
+        // RTH window in UTC minutes (using conservative window that works for both EST/EDT)
+        const rthStart = 13 * 60 + 30; // 13:30 UTC (covers DST)
+        const rthEnd = 21 * 60;         // 21:00 UTC
+        
+        if (session === 'RTH') {
+          return timeInMinutes >= rthStart && timeInMinutes < rthEnd;
+        } else if (session === 'EXT') {
+          return timeInMinutes < rthStart || timeInMinutes >= rthEnd;
+        }
+        return true;
+      });
+      console.log(`Filtered to ${filteredBars.length} bars for session: ${session}`);
+    }
+
+    if (filteredBars.length > 0) {
       // Transform bars to our format
-      const marketBars = allBars.map((bar: any) => ({
+      const marketBars = filteredBars.map((bar: any) => ({
         symbol,
         timeframe,
         ts: bar.t,
@@ -148,7 +182,7 @@ serve(async (req) => {
       .from('market_data_jobs')
       .update({ 
         status: 'completed', 
-        bar_count: allBars.length,
+        bar_count: filteredBars.length,
         finished_at: new Date().toISOString() 
       })
       .eq('id', job.id);
@@ -156,11 +190,11 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       job_id: job.id,
-      bar_count: allBars.length,
+      bar_count: filteredBars.length,
       symbol,
       timeframe,
+      session,
       start,
-      end,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

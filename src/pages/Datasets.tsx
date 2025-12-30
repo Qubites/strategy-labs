@@ -82,6 +82,7 @@ export default function Datasets() {
         body: {
           symbol: symbol.toUpperCase(),
           timeframe,
+          session,
           start: new Date(startDate).toISOString(),
           end: new Date(endDate).toISOString(),
           provider: 'alpaca',
