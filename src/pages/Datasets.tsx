@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Download, Database, Loader2, Trash2, FileDown, Combine, X } from 'lucide-react';
+import { Download, Database, Loader2, Trash2, FileDown, Combine, X, Eye } from 'lucide-react';
 import type { Dataset } from '@/types/trading';
 import { format } from 'date-fns';
 
@@ -32,6 +33,7 @@ const sessions = [
 ];
 
 export default function Datasets() {
+  const navigate = useNavigate();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
@@ -409,9 +411,10 @@ export default function Datasets() {
                   {datasets.map((ds) => (
                     <tr 
                       key={ds.id}
-                      className={selectedDatasets.includes(ds.id) ? 'bg-primary/5' : ''}
+                      className={`cursor-pointer transition-colors ${selectedDatasets.includes(ds.id) ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                      onClick={() => navigate(`/datasets/${ds.id}`)}
                     >
-                      <td>
+                      <td onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selectedDatasets.includes(ds.id)}
                           onCheckedChange={() => toggleDatasetSelection(ds.id)}
@@ -429,7 +432,15 @@ export default function Datasets() {
                       <td className="text-xs text-muted-foreground">
                         {format(new Date(ds.created_at), 'MMM d, HH:mm')}
                       </td>
-                      <td className="flex gap-1">
+                      <td className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => navigate(`/datasets/${ds.id}`)}
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"

@@ -8,6 +8,7 @@ const corsHeaders = {
 
 interface BacktestRequest {
   run_id: string;
+  debug_mode?: boolean;
 }
 
 interface Bar {
@@ -40,9 +41,9 @@ serve(async (req) => {
   }
 
   try {
-    const { run_id } = await req.json() as BacktestRequest;
+    const { run_id, debug_mode = false } = await req.json() as BacktestRequest;
 
-    console.log(`Starting backtest for run: ${run_id}`);
+    console.log(`Starting backtest for run: ${run_id}, debug_mode: ${debug_mode}`);
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -103,13 +104,11 @@ serve(async (req) => {
       .order('ts', { ascending: true });
 
     if (barsError || !bars || bars.length === 0) {
-      // If no bars in database, we'll use simulated data for now
       console.log('No bars found, using simulated backtest');
-      await runSimulatedBacktest(supabase, run_id, params, costModel, template.id);
+      await runSimulatedBacktest(supabase, run_id, params, costModel, template.id, debug_mode);
     } else {
-      // Run actual backtest with real data
       console.log(`Running backtest with ${bars.length} bars`);
-      await runRealBacktest(supabase, run_id, bars, params, costModel, template.id);
+      await runRealBacktest(supabase, run_id, bars, params, costModel, template.id, debug_mode);
     }
 
     // Update run status to done
@@ -158,9 +157,11 @@ async function runRealBacktest(
   bars: Bar[],
   params: any,
   costModel: any,
-  templateId: string
+  templateId: string,
+  debugMode: boolean = false
 ) {
   const trades: Trade[] = [];
+  const debugLogs: any[] = [];
   let position: { side: string; entry_price: number; entry_time: string; qty: number } | null = null;
   
   // Strategy parameters
@@ -200,7 +201,12 @@ async function runRealBacktest(
     }
 
     // Skip if max daily trades reached
-    if (dailyTradeCount >= maxTradesPerDay) continue;
+    if (dailyTradeCount >= maxTradesPerDay) {
+      if (debugMode) {
+        debugLogs.push({ ts: bar.ts, level: 'info', category: 'decision', message: `Skipped: max trades/day (${maxTradesPerDay}) reached` });
+      }
+      continue;
+    }
 
     const atr = calculateATR(bars, atrPeriod, i);
     if (atr === 0) continue;
@@ -343,6 +349,18 @@ async function runRealBacktest(
     await supabase.from('trades').insert(trades);
   }
 
+  // Insert debug logs if enabled
+  if (debugMode && debugLogs.length > 0) {
+    const logsToInsert = debugLogs.slice(0, 500).map(log => ({
+      run_id: runId,
+      ts: log.ts,
+      level: log.level,
+      category: log.category,
+      message: log.message,
+    }));
+    await supabase.from('logs').insert(logsToInsert);
+  }
+
   // Calculate and insert metrics
   await calculateAndInsertMetrics(supabase, runId, trades);
 }
@@ -352,7 +370,8 @@ async function runSimulatedBacktest(
   runId: string,
   params: any,
   costModel: any,
-  templateId: string
+  templateId: string,
+  debugMode: boolean = false
 ) {
   // Generate simulated trades for demo purposes
   const numTrades = Math.floor(Math.random() * 30) + 20;

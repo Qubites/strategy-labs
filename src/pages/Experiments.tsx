@@ -3,9 +3,10 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { ExperimentExport } from '@/components/ExperimentExport';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { FlaskConical, Trophy, ArrowUpRight, RefreshCw, Loader2 } from 'lucide-react';
+import { FlaskConical, Trophy, ArrowUpRight, RefreshCw, Loader2, TrendingDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import type { Bot, BotVersion, RunMetrics } from '@/types/trading';
@@ -145,6 +146,7 @@ export default function Experiments() {
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
+        <ExperimentExport experiments={experiments} />
       </PageHeader>
 
       <div className="px-8 pb-8">
@@ -192,16 +194,20 @@ export default function Experiments() {
                     <tbody>
                       {exp.variants.map((variant, idx) => {
                         const isWinner = idx === 0 && variant.metrics?.profit_factor && variant.metrics.profit_factor > 1;
+                        const isWorst = idx === exp.variants.length - 1 && exp.variants.length > 1 && variant.metrics?.profit_factor && variant.metrics.profit_factor < 1;
                         const nextPromotion = getNextPromotion(variant.version.status);
 
                         return (
                           <tr 
                             key={variant.version.id}
-                            className={isWinner ? 'bg-green-500/5' : ''}
+                            className={isWinner ? 'bg-green-500/5' : isWorst ? 'bg-red-500/5' : ''}
                           >
-                            <td>
+                            <td className="w-10">
                               {isWinner && (
                                 <Trophy className="w-4 h-4 text-yellow-500" />
+                              )}
+                              {isWorst && (
+                                <TrendingDown className="w-4 h-4 text-red-400" />
                               )}
                             </td>
                             <td className="font-mono font-bold">

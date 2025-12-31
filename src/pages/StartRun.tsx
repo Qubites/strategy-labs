@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { DebugModeToggle } from '@/components/DebugModeToggle';
+import { ExpectedBehavior } from '@/components/ExpectedBehavior';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ArrowLeft, Play, Loader2 } from 'lucide-react';
@@ -33,6 +35,7 @@ export default function StartRun() {
   const [selectedDataset, setSelectedDataset] = useState<string>('');
   const [commissionPerShare, setCommissionPerShare] = useState('0.005');
   const [slippagePerShare, setSlippagePerShare] = useState('0.01');
+  const [debugMode, setDebugMode] = useState(false);
 
   useEffect(() => {
     if (id) loadData();
@@ -107,6 +110,7 @@ export default function StartRun() {
           run_type: runType,
           dataset_id: runType === 'backtest' ? selectedDataset : null,
           cost_model: costModel,
+          debug_mode: debugMode,
         },
       });
 
@@ -219,7 +223,21 @@ export default function StartRun() {
             </div>
           )}
 
-          {/* Cost Model */}
+          {/* Debug Mode */}
+          <DebugModeToggle enabled={debugMode} onToggle={setDebugMode} />
+
+          {/* Expected Behavior */}
+          {selectedVersion && (
+            <ExpectedBehavior 
+              params={versions.find(v => v.id === selectedVersion)?.params_json 
+                ? JSON.parse(versions.find(v => v.id === selectedVersion)!.params_json)
+                : {}
+              }
+              templateId={bot?.template_id || ''}
+              barCount={datasets.find(d => d.id === selectedDataset)?.bar_count}
+              session={datasets.find(d => d.id === selectedDataset)?.session}
+            />
+          )}
           <div className="terminal-card p-6 space-y-4">
             <h3 className="font-medium">Cost Model</h3>
             <div className="grid grid-cols-2 gap-4">
