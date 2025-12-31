@@ -106,9 +106,16 @@ export function AICoachCard({ botVersionId, runId, onAdviceApplied }: AICoachCar
         return;
       }
 
-      toast.success(`Created new version v${data.new_version_number}`);
+      // Show prominent success with details
+      toast.success(`New version v${data.new_version_number} created!`, {
+        description: `Applied ${data.applied_changes?.length || 0} parameter changes. Check the Versions tab.`,
+        duration: 5000,
+      });
+      
       // Clear advice after successful apply to prevent re-applying
       setAdvice(null);
+      
+      // Trigger refresh of parent data
       onAdviceApplied?.();
     } catch (error) {
       console.error('Error applying advice:', error);
