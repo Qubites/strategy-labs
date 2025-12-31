@@ -108,9 +108,25 @@ export default function Experiments() {
         body: { bot_version_id: versionId, target },
       });
 
-      if (error) throw error;
+      // Handle edge function errors (including 400 responses)
+      if (error) {
+        // Try to parse error context for validation failures
+        const errorContext = (error as any)?.context;
+        if (errorContext) {
+          try {
+            const errorBody = JSON.parse(errorContext);
+            toast.error(errorBody.error || 'Promotion failed', {
+              description: errorBody.details?.join('\n'),
+            });
+            return;
+          } catch {
+            // Fall through to generic error
+          }
+        }
+        throw error;
+      }
 
-      if (data.error) {
+      if (data?.error) {
         toast.error(data.error, {
           description: data.details?.join('\n'),
         });
@@ -119,7 +135,7 @@ export default function Experiments() {
 
       toast.success(`Version promoted to ${target}`);
       loadExperiments();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error promoting:', error);
       toast.error('Failed to promote version');
     } finally {
