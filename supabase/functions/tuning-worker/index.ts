@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.89.0";
 
+// Declare EdgeRuntime for background task support
+declare const EdgeRuntime: {
+  waitUntil(promise: Promise<unknown>): void;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -183,7 +188,9 @@ serve(async (req) => {
     }
 
     // Update job progress
-    const finalStatus = trialsRun >= job.max_trials ? 'completed' : 'paused';
+    const isComplete = trialsRun >= job.max_trials;
+    const finalStatus = isComplete ? 'completed' : 'running'; // Keep running if more trials needed
+    
     await supabase
       .from('tuning_jobs')
       .update({ 
@@ -193,13 +200,41 @@ serve(async (req) => {
       })
       .eq('id', job_id);
 
+    // If not complete, schedule next batch automatically
+    if (!isComplete) {
+      console.log(`Scheduling next batch. Completed ${trialsRun}/${job.max_trials} trials.`);
+      
+      // Use waitUntil to continue processing in background
+      EdgeRuntime.waitUntil(
+        (async () => {
+          // Small delay before next batch
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Call self to continue
+          const response = await fetch(`${SUPABASE_URL}/functions/v1/tuning-worker`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            },
+            body: JSON.stringify({ job_id }),
+          });
+          
+          if (!response.ok) {
+            console.error('Failed to continue batch:', await response.text());
+          }
+        })()
+      );
+    }
+
     return new Response(JSON.stringify({
       success: true,
       job_id,
       trials_run: trialsRun,
       best_version_id: bestVersion,
       best_score: bestScore,
-      status: finalStatus
+      status: finalStatus,
+      message: isComplete ? 'Job completed' : `Processed batch, ${job.max_trials - trialsRun} trials remaining`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
