@@ -4,7 +4,8 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { FileCode2, ArrowRight, Settings2, TrendingUp, RefreshCw } from 'lucide-react';
+import { FileCode2, ArrowRight, Settings2, TrendingUp, RefreshCw, Plus } from 'lucide-react';
+import { TemplateEditorDialog } from '@/components/TemplateEditorDialog';
 import type { StrategyTemplate, ParamSchema } from '@/types/trading';
 
 export default function Templates() {
@@ -63,7 +64,17 @@ export default function Templates() {
       <PageHeader
         title="Strategy Templates"
         description="Pre-built trading strategies with configurable parameters"
-      />
+      >
+        <TemplateEditorDialog
+          trigger={
+            <Button>
+              <Plus className="w-4 h-4 mr-2" />
+              New Template
+            </Button>
+          }
+          onTemplateCreated={loadTemplates}
+        />
+      </PageHeader>
 
       <div className="px-8 pb-8">
         {loading ? (
