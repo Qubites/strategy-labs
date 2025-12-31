@@ -62,6 +62,20 @@ export default function AutoTuner() {
     if (selectedJob) loadTrials(selectedJob);
   }, [selectedJob]);
 
+  // Auto-refresh polling while a job is running
+  useEffect(() => {
+    const hasActiveJob = runningJobId !== null || jobs.some(j => j.status === 'running');
+    
+    if (!hasActiveJob) return;
+
+    const interval = setInterval(() => {
+      loadData();
+      if (selectedJob) loadTrials(selectedJob);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [runningJobId, jobs, selectedJob]);
+
   // Parse instructions preview
   useEffect(() => {
     if (!instructions.trim()) {
