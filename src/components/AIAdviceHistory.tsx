@@ -5,26 +5,51 @@ import { format } from 'date-fns';
 import type { AIAdvice } from '@/types/trading';
 
 interface AIAdviceHistoryProps {
-  botVersionId: string;
+  botId: string;
 }
 
-export function AIAdviceHistory({ botVersionId }: AIAdviceHistoryProps) {
+export function AIAdviceHistory({ botId }: AIAdviceHistoryProps) {
   const [advice, setAdvice] = useState<AIAdvice[]>([]);
+  const [versionMap, setVersionMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     loadAdvice();
-  }, [botVersionId]);
+  }, [botId]);
 
   async function loadAdvice() {
     try {
+      // First get all version IDs for this bot
+      const { data: versions, error: versionsError } = await supabase
+        .from('bot_versions')
+        .select('id, version_number')
+        .eq('bot_id', botId)
+        .order('version_number', { ascending: false });
+
+      if (versionsError) throw versionsError;
+      
+      const versionIds = versions?.map(v => v.id) || [];
+      
+      // Build version lookup map
+      const versionLookup = (versions || []).reduce((acc, v) => {
+        acc[v.id] = v.version_number;
+        return acc;
+      }, {} as Record<string, number>);
+      setVersionMap(versionLookup);
+      
+      if (versionIds.length === 0) {
+        setAdvice([]);
+        return;
+      }
+
+      // Get all advice for those versions
       const { data, error } = await supabase
         .from('ai_advice')
         .select('*')
-        .eq('bot_version_id', botVersionId)
+        .in('bot_version_id', versionIds)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (error) throw error;
       setAdvice(data || []);
@@ -79,7 +104,7 @@ export function AIAdviceHistory({ botVersionId }: AIAdviceHistoryProps) {
                        item.goal === 'fees' ? 'Reduce Fees' : 'Fix Execution'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {format(new Date(item.created_at), 'MMM d, yyyy HH:mm')} • {item.advice_window} window
+                      v{versionMap[item.bot_version_id] || '?'} • {format(new Date(item.created_at), 'MMM d, yyyy HH:mm')} • {item.advice_window} window
                     </p>
                   </div>
                 </div>

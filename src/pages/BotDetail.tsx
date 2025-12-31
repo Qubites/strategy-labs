@@ -538,7 +538,7 @@ export default function BotDetail() {
               />
               <div>
                 <h3 className="font-medium mb-4">Advice History</h3>
-                <AIAdviceHistory botVersionId={latestVersion?.id || ''} />
+                <AIAdviceHistory botId={id!} />
               </div>
             </div>
           </TabsContent>
