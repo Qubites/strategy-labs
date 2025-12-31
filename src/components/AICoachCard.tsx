@@ -107,6 +107,8 @@ export function AICoachCard({ botVersionId, runId, onAdviceApplied }: AICoachCar
       }
 
       toast.success(`Created new version v${data.new_version_number}`);
+      // Clear advice after successful apply to prevent re-applying
+      setAdvice(null);
       onAdviceApplied?.();
     } catch (error) {
       console.error('Error applying advice:', error);
