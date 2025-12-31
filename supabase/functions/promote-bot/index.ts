@@ -19,6 +19,14 @@ interface PromotionRule {
   requiresPaperHistory?: boolean;
 }
 
+// Map status to lifecycle_status for pipeline visualization
+const STATUS_TO_LIFECYCLE: Record<string, string> = {
+  'draft': 'DRAFT',
+  'backtested': 'BACKTEST_WINNER',
+  'approved_paper': 'PAPER_RUNNING',
+  'approved_live': 'LIVE_READY',
+};
+
 const PROMOTION_RULES: Record<string, PromotionRule> = {
   backtested: {
     from: ['draft'],
@@ -153,10 +161,13 @@ serve(async (req) => {
       });
     }
 
-    // Update bot version status
+    // Update bot version status and lifecycle_status
     const { error: updateError } = await supabase
       .from('bot_versions')
-      .update({ status: target })
+      .update({ 
+        status: target,
+        lifecycle_status: STATUS_TO_LIFECYCLE[target] || 'DRAFT'
+      })
       .eq('id', bot_version_id);
 
     if (updateError) throw updateError;

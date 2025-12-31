@@ -191,8 +191,8 @@ export default function Bots() {
                           const winRate = getBestWinRate(bot.bot_versions);
                           if (winRate === null) return <span className="text-muted-foreground">—</span>;
                           return (
-                            <span className={winRate >= 50 ? 'text-success' : 'text-destructive'}>
-                              {winRate.toFixed(1)}%
+                            <span className={winRate >= 0.5 ? 'text-success' : 'text-destructive'}>
+                              {(winRate * 100).toFixed(1)}%
                             </span>
                           );
                         })()}
