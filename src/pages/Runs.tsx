@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -18,6 +19,7 @@ import { format } from 'date-fns';
 import type { Run } from '@/types/trading';
 
 export default function Runs() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState({
@@ -181,7 +183,11 @@ export default function Runs() {
               </thead>
               <tbody>
                 {filteredRuns.map((run: any) => (
-                  <tr key={run.id}>
+                  <tr 
+                    key={run.id}
+                    onClick={() => navigate(`/runs/${run.id}`)}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  >
                     <td>
                       <span className="font-medium">{run.bot_versions?.bots?.name}</span>
                       <span className="text-muted-foreground ml-1">
@@ -233,7 +239,7 @@ export default function Runs() {
                     <td className="text-sm text-muted-foreground">
                       {format(new Date(run.start_ts), 'MMM d, HH:mm')}
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       {(run.status === 'running' || run.status === 'queued') && (
                         <Button
                           variant="ghost"

@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AICoachCard } from '@/components/AICoachCard';
 import { AIAdviceHistory } from '@/components/AIAdviceHistory';
 import { DuplicateBotDialog } from '@/components/DuplicateBotDialog';
+import { VersionTimeline } from '@/components/VersionTimeline';
+import { ExpectedBehavior } from '@/components/ExpectedBehavior';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -324,55 +326,12 @@ export default function BotDetail() {
           </TabsContent>
 
           <TabsContent value="versions">
-            <div className="terminal-card">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Version</th>
-                    <th>Status</th>
-                    <th>Params Hash</th>
-                    <th>Created</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.map((version) => {
-                    const nextPromotion = getNextPromotion(version.status);
-                    return (
-                      <tr key={version.id}>
-                        <td className="font-mono">v{version.version_number}</td>
-                        <td>
-                          <StatusBadge status={version.status} />
-                        </td>
-                        <td className="font-mono text-xs text-muted-foreground">
-                          {version.params_hash}
-                        </td>
-                        <td className="text-sm text-muted-foreground">
-                          {format(new Date(version.created_at), 'MMM d, yyyy HH:mm')}
-                        </td>
-                        <td>
-                          {nextPromotion && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handlePromote(version.id, nextPromotion)}
-                              disabled={promoting === version.id}
-                              className="gap-1"
-                            >
-                              {promoting === version.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <ArrowUpRight className="w-3 h-3" />
-                              )}
-                              Promote
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="terminal-card p-6">
+              <VersionTimeline 
+                versions={versions} 
+                botId={bot.id}
+                onVersionCreated={loadBotDetails}
+              />
             </div>
           </TabsContent>
 
@@ -393,7 +352,11 @@ export default function BotDetail() {
                   </thead>
                   <tbody>
                     {runs.map((run: any) => (
-                      <tr key={run.id}>
+                      <tr 
+                        key={run.id}
+                        onClick={() => navigate(`/runs/${run.id}`)}
+                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                      >
                         <td className="capitalize">{run.run_type}</td>
                         <td className="font-mono text-sm">
                           {run.datasets?.symbol || '—'} {run.datasets?.timeframe}
@@ -422,6 +385,16 @@ export default function BotDetail() {
               )}
             </div>
           </TabsContent>
+
+          {/* Expected Behavior Section */}
+          {latestVersion && schema && (
+            <div className="mt-6">
+              <ExpectedBehavior 
+                params={latestParams} 
+                templateId={bot.template_id}
+              />
+            </div>
+          )}
 
           <TabsContent value="trades">
             <div className="terminal-card">
