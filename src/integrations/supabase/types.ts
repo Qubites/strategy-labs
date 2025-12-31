@@ -124,6 +124,7 @@ export type Database = {
           bot_id: string
           created_at: string
           id: string
+          lifecycle_status: string
           params_hash: string
           params_json: string
           risk_limits_json: string
@@ -135,6 +136,7 @@ export type Database = {
           bot_id: string
           created_at?: string
           id?: string
+          lifecycle_status?: string
           params_hash: string
           params_json: string
           risk_limits_json: string
@@ -146,6 +148,7 @@ export type Database = {
           bot_id?: string
           created_at?: string
           id?: string
+          lifecycle_status?: string
           params_hash?: string
           params_json?: string
           risk_limits_json?: string
@@ -267,6 +270,60 @@ export type Database = {
         }
         Relationships: []
       }
+      live_candidates: {
+        Row: {
+          approved: boolean
+          approved_at: string | null
+          created_at: string
+          id: string
+          job_id: string | null
+          paper_deployment_id: string | null
+          reject_reason: string | null
+          stress_passed: boolean | null
+          stress_results_json: Json | null
+          version_id: string
+        }
+        Insert: {
+          approved?: boolean
+          approved_at?: string | null
+          created_at?: string
+          id?: string
+          job_id?: string | null
+          paper_deployment_id?: string | null
+          reject_reason?: string | null
+          stress_passed?: boolean | null
+          stress_results_json?: Json | null
+          version_id: string
+        }
+        Update: {
+          approved?: boolean
+          approved_at?: string | null
+          created_at?: string
+          id?: string
+          job_id?: string | null
+          paper_deployment_id?: string | null
+          reject_reason?: string | null
+          stress_passed?: boolean | null
+          stress_results_json?: Json | null
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_candidates_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "tuning_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_candidates_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       logs: {
         Row: {
           category: string
@@ -385,6 +442,213 @@ export type Database = {
           timeframe?: string
         }
         Relationships: []
+      }
+      paper_deployments: {
+        Row: {
+          bot_id: string
+          bot_version_id: string
+          config_json: Json | null
+          created_at: string
+          ended_at: string | null
+          id: string
+          pass_criteria: Json
+          passed: boolean | null
+          reject_reason: string | null
+          result_summary: Json | null
+          started_at: string | null
+          status: string
+          symbols: string[]
+          target_days: number
+        }
+        Insert: {
+          bot_id: string
+          bot_version_id: string
+          config_json?: Json | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          pass_criteria?: Json
+          passed?: boolean | null
+          reject_reason?: string | null
+          result_summary?: Json | null
+          started_at?: string | null
+          status?: string
+          symbols?: string[]
+          target_days?: number
+        }
+        Update: {
+          bot_id?: string
+          bot_version_id?: string
+          config_json?: Json | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          pass_criteria?: Json
+          passed?: boolean | null
+          reject_reason?: string | null
+          result_summary?: Json | null
+          started_at?: string | null
+          status?: string
+          symbols?: string[]
+          target_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_deployments_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paper_deployments_bot_version_id_fkey"
+            columns: ["bot_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_metrics_daily: {
+        Row: {
+          created_at: string
+          date: string
+          deployment_id: string
+          drawdown: number
+          equity_end: number | null
+          id: string
+          notes: string | null
+          pnl: number
+          trades_count: number
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          deployment_id: string
+          drawdown?: number
+          equity_end?: number | null
+          id?: string
+          notes?: string | null
+          pnl?: number
+          trades_count?: number
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          deployment_id?: string
+          drawdown?: number
+          equity_end?: number | null
+          id?: string
+          notes?: string | null
+          pnl?: number
+          trades_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_metrics_daily_deployment_id_fkey"
+            columns: ["deployment_id"]
+            isOneToOne: false
+            referencedRelation: "paper_deployments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_orders: {
+        Row: {
+          alpaca_order_id: string | null
+          created_at: string
+          deployment_id: string
+          filled_at: string | null
+          filled_price: number | null
+          filled_qty: number | null
+          id: string
+          order_type: string
+          qty: number
+          raw_json: Json | null
+          side: string
+          status: string
+          submitted_at: string
+          symbol: string
+        }
+        Insert: {
+          alpaca_order_id?: string | null
+          created_at?: string
+          deployment_id: string
+          filled_at?: string | null
+          filled_price?: number | null
+          filled_qty?: number | null
+          id?: string
+          order_type?: string
+          qty: number
+          raw_json?: Json | null
+          side: string
+          status?: string
+          submitted_at?: string
+          symbol: string
+        }
+        Update: {
+          alpaca_order_id?: string | null
+          created_at?: string
+          deployment_id?: string
+          filled_at?: string | null
+          filled_price?: number | null
+          filled_qty?: number | null
+          id?: string
+          order_type?: string
+          qty?: number
+          raw_json?: Json | null
+          side?: string
+          status?: string
+          submitted_at?: string
+          symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_orders_deployment_id_fkey"
+            columns: ["deployment_id"]
+            isOneToOne: false
+            referencedRelation: "paper_deployments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_positions_snapshots: {
+        Row: {
+          cash: number
+          created_at: string
+          deployment_id: string
+          equity: number
+          id: string
+          positions_json: Json | null
+          ts: string
+        }
+        Insert: {
+          cash: number
+          created_at?: string
+          deployment_id: string
+          equity: number
+          id?: string
+          positions_json?: Json | null
+          ts?: string
+        }
+        Update: {
+          cash?: number
+          created_at?: string
+          deployment_id?: string
+          equity?: number
+          id?: string
+          positions_json?: Json | null
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_positions_snapshots_deployment_id_fkey"
+            columns: ["deployment_id"]
+            isOneToOne: false
+            referencedRelation: "paper_deployments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       run_metrics: {
         Row: {
@@ -591,6 +855,187 @@ export type Database = {
           {
             foreignKeyName: "trades_run_id_fkey"
             columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tuning_jobs: {
+        Row: {
+          best_score: number | null
+          bot_id: string
+          champion_version_id: string | null
+          constraints: Json
+          created_at: string
+          dataset_id: string | null
+          id: string
+          instruction_parsed_json: Json | null
+          instructions: string | null
+          max_trials: number
+          objective_config: Json
+          status: string
+          test_pct: number
+          train_pct: number
+          trials_completed: number
+          updated_at: string
+          val_pct: number
+        }
+        Insert: {
+          best_score?: number | null
+          bot_id: string
+          champion_version_id?: string | null
+          constraints?: Json
+          created_at?: string
+          dataset_id?: string | null
+          id?: string
+          instruction_parsed_json?: Json | null
+          instructions?: string | null
+          max_trials?: number
+          objective_config?: Json
+          status?: string
+          test_pct?: number
+          train_pct?: number
+          trials_completed?: number
+          updated_at?: string
+          val_pct?: number
+        }
+        Update: {
+          best_score?: number | null
+          bot_id?: string
+          champion_version_id?: string | null
+          constraints?: Json
+          created_at?: string
+          dataset_id?: string | null
+          id?: string
+          instruction_parsed_json?: Json | null
+          instructions?: string | null
+          max_trials?: number
+          objective_config?: Json
+          status?: string
+          test_pct?: number
+          train_pct?: number
+          trials_completed?: number
+          updated_at?: string
+          val_pct?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tuning_jobs_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_jobs_champion_version_id_fkey"
+            columns: ["champion_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_jobs_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tuning_trials: {
+        Row: {
+          accepted: boolean
+          base_version_id: string
+          candidate_params: Json
+          candidate_risk_limits: Json | null
+          created_at: string
+          id: string
+          job_id: string
+          reject_reason: string | null
+          test_metrics: Json | null
+          test_run_id: string | null
+          test_score: number | null
+          train_metrics: Json | null
+          train_run_id: string | null
+          train_score: number | null
+          trial_number: number
+          val_metrics: Json | null
+          val_run_id: string | null
+          val_score: number | null
+        }
+        Insert: {
+          accepted?: boolean
+          base_version_id: string
+          candidate_params: Json
+          candidate_risk_limits?: Json | null
+          created_at?: string
+          id?: string
+          job_id: string
+          reject_reason?: string | null
+          test_metrics?: Json | null
+          test_run_id?: string | null
+          test_score?: number | null
+          train_metrics?: Json | null
+          train_run_id?: string | null
+          train_score?: number | null
+          trial_number: number
+          val_metrics?: Json | null
+          val_run_id?: string | null
+          val_score?: number | null
+        }
+        Update: {
+          accepted?: boolean
+          base_version_id?: string
+          candidate_params?: Json
+          candidate_risk_limits?: Json | null
+          created_at?: string
+          id?: string
+          job_id?: string
+          reject_reason?: string | null
+          test_metrics?: Json | null
+          test_run_id?: string | null
+          test_score?: number | null
+          train_metrics?: Json | null
+          train_run_id?: string | null
+          train_score?: number | null
+          trial_number?: number
+          val_metrics?: Json | null
+          val_run_id?: string | null
+          val_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tuning_trials_base_version_id_fkey"
+            columns: ["base_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_trials_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "tuning_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_trials_test_run_id_fkey"
+            columns: ["test_run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_trials_train_run_id_fkey"
+            columns: ["train_run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tuning_trials_val_run_id_fkey"
+            columns: ["val_run_id"]
             isOneToOne: false
             referencedRelation: "runs"
             referencedColumns: ["id"]
