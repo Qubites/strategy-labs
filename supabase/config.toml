@@ -26,3 +26,24 @@ verify_jwt = false
 
 [functions.ai-apply]
 verify_jwt = false
+
+[functions.tuning-start]
+verify_jwt = false
+
+[functions.tuning-worker]
+verify_jwt = false
+
+[functions.stress-test]
+verify_jwt = false
+
+[functions.paper-start]
+verify_jwt = false
+
+[functions.paper-runner]
+verify_jwt = false
+
+[functions.paper-stop]
+verify_jwt = false
+
+[functions.paper-evaluate]
+verify_jwt = false
