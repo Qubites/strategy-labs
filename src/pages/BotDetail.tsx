@@ -46,6 +46,7 @@ export default function BotDetail() {
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState<string | null>(null);
   const [liveCandidate, setLiveCandidate] = useState<any>(null);
+  const [paperDeploymentId, setPaperDeploymentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) loadBotDetails();
@@ -115,6 +116,16 @@ export default function BotDetail() {
           .single();
 
         setLiveCandidate(candidateData);
+
+        // Load paper deployment for this version if running
+        const { data: paperDep } = await supabase
+          .from('paper_deployments')
+          .select('id')
+          .eq('bot_version_id', versionsData[0].id)
+          .eq('status', 'running')
+          .single();
+
+        setPaperDeploymentId(paperDep?.id || null);
       }
     } catch (error) {
       console.error('Error loading bot:', error);
@@ -283,6 +294,14 @@ export default function BotDetail() {
                   <FileCheck className="w-4 h-4" />
                   Start Paper Trading
                 </Button>
+              )}
+              {lifecycleStatus === 'PAPER_RUNNING' && paperDeploymentId && (
+                <Link to={`/paper/${paperDeploymentId}`}>
+                  <Button size="sm" className="gap-2">
+                    <FileCheck className="w-4 h-4" />
+                    View Paper Trading
+                  </Button>
+                </Link>
               )}
             </div>
           </div>

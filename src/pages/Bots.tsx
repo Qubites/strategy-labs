@@ -4,9 +4,10 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { LifecycleStatusBadge, type LifecycleStatus } from '@/components/LifecycleStatus';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Plus, Bot, MoreVertical, Play, Copy, Archive, Eye } from 'lucide-react';
+import { Plus, Bot, MoreVertical, Play, Copy, Archive, Eye, FileCheck } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -158,6 +159,7 @@ export default function Bots() {
                   <th>Template</th>
                   <th>Version</th>
                   <th>Status</th>
+                  <th>Pipeline</th>
                   <th>Win Rate</th>
                   <th>Created</th>
                   <th></th>
@@ -185,6 +187,11 @@ export default function Bots() {
                       <td>v{latestVersion?.version_number || 1}</td>
                       <td>
                         <StatusBadge status={latestVersion?.status || 'draft'} />
+                      </td>
+                      <td>
+                        <LifecycleStatusBadge 
+                          status={(latestVersion as any)?.lifecycle_status as LifecycleStatus || 'DRAFT'} 
+                        />
                       </td>
                       <td>
                         {(() => {
