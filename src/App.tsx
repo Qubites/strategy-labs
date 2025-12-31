@@ -5,12 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Datasets from "./pages/Datasets";
+import DatasetDetail from "./pages/DatasetDetail";
 import Templates from "./pages/Templates";
 import Bots from "./pages/Bots";
 import NewBot from "./pages/NewBot";
 import BotDetail from "./pages/BotDetail";
 import StartRun from "./pages/StartRun";
 import Runs from "./pages/Runs";
+import RunDetail from "./pages/RunDetail";
 import Leaderboard from "./pages/Leaderboard";
 import Experiments from "./pages/Experiments";
 import NotFound from "./pages/NotFound";
@@ -26,12 +28,14 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/datasets" element={<Datasets />} />
+          <Route path="/datasets/:id" element={<DatasetDetail />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/bots" element={<Bots />} />
           <Route path="/bots/new" element={<NewBot />} />
           <Route path="/bots/:id" element={<BotDetail />} />
           <Route path="/bots/:id/run" element={<StartRun />} />
           <Route path="/runs" element={<Runs />} />
+          <Route path="/runs/:id" element={<RunDetail />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/experiments" element={<Experiments />} />
           <Route path="*" element={<NotFound />} />
