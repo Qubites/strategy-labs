@@ -37,7 +37,13 @@ export default function Bots() {
         .select(`
           *,
           strategy_templates (*),
-          bot_versions (*)
+          bot_versions (
+            *,
+            runs (
+              status,
+              run_metrics (win_rate)
+            )
+          )
         `)
         .eq('archived', false)
         .order('created_at', { ascending: false });
@@ -50,6 +56,21 @@ export default function Bots() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function getBestWinRate(botVersions: any[]): number | null {
+    let bestWinRate: number | null = null;
+    for (const version of botVersions || []) {
+      for (const run of version.runs || []) {
+        if (run.status === 'done' && run.run_metrics?.win_rate != null) {
+          const wr = parseFloat(run.run_metrics.win_rate);
+          if (bestWinRate === null || wr > bestWinRate) {
+            bestWinRate = wr;
+          }
+        }
+      }
+    }
+    return bestWinRate;
   }
 
   async function handleDuplicate(bot: BotWithDetails) {
@@ -137,6 +158,7 @@ export default function Bots() {
                   <th>Template</th>
                   <th>Version</th>
                   <th>Status</th>
+                  <th>Win Rate</th>
                   <th>Created</th>
                   <th></th>
                 </tr>
@@ -164,8 +186,19 @@ export default function Bots() {
                       <td>
                         <StatusBadge status={latestVersion?.status || 'draft'} />
                       </td>
+                      <td>
+                        {(() => {
+                          const winRate = getBestWinRate(bot.bot_versions);
+                          if (winRate === null) return <span className="text-muted-foreground">—</span>;
+                          return (
+                            <span className={winRate >= 50 ? 'text-success' : 'text-destructive'}>
+                              {winRate.toFixed(1)}%
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="text-sm text-muted-foreground">
-                        {format(new Date(bot.created_at), 'MMM d, yyyy')}
+                        {format(new Date(bot.created_at), 'MMM d, yyyy HH:mm')}
                       </td>
                       <td>
                         <DropdownMenu>

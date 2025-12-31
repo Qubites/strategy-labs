@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -188,8 +188,13 @@ export default function Runs() {
                     onClick={() => navigate(`/runs/${run.id}`)}
                     className="cursor-pointer hover:bg-muted/50 transition-colors"
                   >
-                    <td>
-                      <span className="font-medium">{run.bot_versions?.bots?.name}</span>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <Link 
+                        to={`/bots/${run.bot_versions?.bots?.id}`}
+                        className="font-medium hover:text-primary transition-colors"
+                      >
+                        {run.bot_versions?.bots?.name}
+                      </Link>
                       <span className="text-muted-foreground ml-1">
                         v{run.bot_versions?.version_number}
                       </span>
