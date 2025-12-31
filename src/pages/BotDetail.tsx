@@ -45,6 +45,7 @@ export default function BotDetail() {
   const [schema, setSchema] = useState<ParamSchema | null>(null);
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [liveCandidate, setLiveCandidate] = useState<any>(null);
 
   useEffect(() => {
     if (id) loadBotDetails();
@@ -103,6 +104,17 @@ export default function BotDetail() {
           .limit(50);
 
         setTrades(tradesData || []);
+      }
+
+      // Load live candidate (stress test results) for latest version
+      if (versionsData && versionsData.length > 0) {
+        const { data: candidateData } = await supabase
+          .from('live_candidates')
+          .select('*')
+          .eq('version_id', versionsData[0].id)
+          .single();
+
+        setLiveCandidate(candidateData);
       }
     } catch (error) {
       console.error('Error loading bot:', error);
@@ -227,15 +239,19 @@ export default function BotDetail() {
                         .limit(1)
                         .single();
                       if (datasets) {
-                        const { error } = await supabase.functions.invoke('stress-test', {
+                        const { data, error } = await supabase.functions.invoke('stress-test', {
                           body: { version_id: latestVersion.id, dataset_id: datasets.id }
                         });
                         if (error) throw error;
-                        toast.success('Stress test started');
+                        if (data?.error) {
+                          toast.error(data.error);
+                          return;
+                        }
+                        toast.success(`Stress test ${data?.stress_passed ? 'PASSED' : 'FAILED'}: ${data?.results?.tests_passed}/4 tests`);
                         loadBotDetails();
                       }
-                    } catch (e) {
-                      toast.error('Failed to start stress test');
+                    } catch (e: any) {
+                      toast.error(e?.message || 'Failed to start stress test');
                     }
                   }}
                 >
@@ -253,10 +269,14 @@ export default function BotDetail() {
                         body: { bot_id: bot.id, bot_version_id: latestVersion.id }
                       });
                       if (error) throw error;
+                      if (data?.error) {
+                        toast.error(data.error);
+                        return;
+                      }
                       toast.success('Paper trading started');
                       navigate(`/paper/${data.deployment_id}`);
                     } catch (e: any) {
-                      toast.error(e.message || 'Failed to start paper trading');
+                      toast.error(e?.message || 'Failed to start paper trading');
                     }
                   }}
                 >
@@ -267,6 +287,52 @@ export default function BotDetail() {
             </div>
           </div>
           <PipelineProgress currentStatus={lifecycleStatus} />
+          
+          {/* Stress Test Results */}
+          {liveCandidate?.stress_results_json && (
+            <div className="mt-4 p-4 rounded-lg border border-border bg-muted/30">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-4 h-4" />
+                <span className="font-medium">Stress Test Results</span>
+                <span className={`ml-auto px-2 py-0.5 rounded text-xs font-medium ${
+                  liveCandidate.stress_passed 
+                    ? 'bg-success/20 text-success' 
+                    : 'bg-destructive/20 text-destructive'
+                }`}>
+                  {liveCandidate.stress_passed ? 'PASSED' : 'FAILED'} ({liveCandidate.stress_results_json.tests_passed}/4)
+                </span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                {['baseline', 'slippage_1bps', 'slippage_3bps', 'extra_fee', 'data_gaps'].map((test) => {
+                  const result = liveCandidate.stress_results_json[test];
+                  if (!result) return null;
+                  const isBaseline = test === 'baseline';
+                  const passed = isBaseline || (
+                    test === 'slippage_1bps' ? result.net_pnl > 0 :
+                    test === 'slippage_3bps' ? result.net_pnl > 0 :
+                    test === 'extra_fee' ? result.net_pnl > liveCandidate.stress_results_json.baseline?.net_pnl * 0.5 :
+                    result.max_dd < liveCandidate.stress_results_json.baseline?.max_dd * 1.5 + 0.05
+                  );
+                  return (
+                    <div key={test} className={`p-2 rounded border ${
+                      isBaseline ? 'border-border bg-background' : 
+                      passed ? 'border-success/30 bg-success/5' : 'border-destructive/30 bg-destructive/5'
+                    }`}>
+                      <div className="text-xs text-muted-foreground capitalize mb-1">
+                        {test.replace(/_/g, ' ')}
+                      </div>
+                      <div className="font-mono text-xs">
+                        PnL: ${result.net_pnl?.toFixed(2) || '0'}
+                      </div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        DD: {(result.max_dd * 100)?.toFixed(1) || '0'}%
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Status & Version */}
