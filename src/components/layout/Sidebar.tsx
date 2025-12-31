@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Sparkles,
   ChevronRight,
+  Brain,
 } from 'lucide-react';
 
 const navigation = [

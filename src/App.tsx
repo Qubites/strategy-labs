@@ -15,6 +15,8 @@ import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Leaderboard from "./pages/Leaderboard";
 import Experiments from "./pages/Experiments";
+import AutoTuner from "./pages/AutoTuner";
+import PaperTrading from "./pages/PaperTrading";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,10 +36,12 @@ const App = () => (
           <Route path="/bots/new" element={<NewBot />} />
           <Route path="/bots/:id" element={<BotDetail />} />
           <Route path="/bots/:id/run" element={<StartRun />} />
+          <Route path="/bots/:botId/tuner" element={<AutoTuner />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/runs/:id" element={<RunDetail />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/experiments" element={<Experiments />} />
+          <Route path="/paper/:id" element={<PaperTrading />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

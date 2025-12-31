@@ -11,6 +11,7 @@ import { AIAdviceHistory } from '@/components/AIAdviceHistory';
 import { DuplicateBotDialog } from '@/components/DuplicateBotDialog';
 import { VersionTimeline } from '@/components/VersionTimeline';
 import { ExpectedBehavior } from '@/components/ExpectedBehavior';
+import { LifecycleStatusBadge, PipelineProgress, type LifecycleStatus } from '@/components/LifecycleStatus';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -27,6 +28,9 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Loader2,
+  Brain,
+  Zap,
+  FileCheck,
 } from 'lucide-react';
 import type { Bot as BotType, BotVersion, Run, Trade, ParamSchema } from '@/types/trading';
 
@@ -180,6 +184,8 @@ export default function BotDetail() {
     );
   }
 
+  const lifecycleStatus = (latestVersion as any)?.lifecycle_status as LifecycleStatus || 'DRAFT';
+
   return (
     <MainLayout>
       <PageHeader title={bot.name} description={`Template: ${bot.template_id}`}>
@@ -201,8 +207,75 @@ export default function BotDetail() {
       </PageHeader>
 
       <div className="px-8 pb-8 space-y-6">
+        {/* Pipeline Progress */}
+        <div className="terminal-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium">Pipeline Progress</h3>
+            <div className="flex items-center gap-2">
+              <Link to={`/bots/${bot.id}/tuner`}>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Brain className="w-4 h-4" />
+                  Auto Tuner
+                </Button>
+              </Link>
+              {lifecycleStatus === 'BACKTEST_WINNER' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={async () => {
+                    try {
+                      const { data: datasets } = await supabase
+                        .from('datasets')
+                        .select('id')
+                        .limit(1)
+                        .single();
+                      if (datasets) {
+                        const { error } = await supabase.functions.invoke('stress-test', {
+                          body: { version_id: latestVersion.id, dataset_id: datasets.id }
+                        });
+                        if (error) throw error;
+                        toast.success('Stress test started');
+                        loadBotDetails();
+                      }
+                    } catch (e) {
+                      toast.error('Failed to start stress test');
+                    }
+                  }}
+                >
+                  <Zap className="w-4 h-4" />
+                  Run Stress Test
+                </Button>
+              )}
+              {lifecycleStatus === 'BACKTEST_WINNER' && (
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  onClick={async () => {
+                    try {
+                      const { data, error } = await supabase.functions.invoke('paper-start', {
+                        body: { bot_id: bot.id, bot_version_id: latestVersion.id }
+                      });
+                      if (error) throw error;
+                      toast.success('Paper trading started');
+                      navigate(`/paper/${data.deployment_id}`);
+                    } catch (e: any) {
+                      toast.error(e.message || 'Failed to start paper trading');
+                    }
+                  }}
+                >
+                  <FileCheck className="w-4 h-4" />
+                  Start Paper Trading
+                </Button>
+              )}
+            </div>
+          </div>
+          <PipelineProgress currentStatus={lifecycleStatus} />
+        </div>
+
         {/* Status & Version */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <LifecycleStatusBadge status={lifecycleStatus} />
           <StatusBadge status={latestVersion?.status || 'draft'} />
           <span className="text-sm text-muted-foreground">
             Version {latestVersion?.version_number || 1}
