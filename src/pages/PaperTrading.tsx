@@ -188,9 +188,15 @@ export default function PaperTrading() {
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
-        <Button variant="outline" onClick={handleSync} disabled={syncing} className="gap-2">
+        <Button 
+          variant="outline" 
+          onClick={handleSync} 
+          disabled={syncing} 
+          className="gap-2"
+          title="Fetch latest positions and orders from Alpaca"
+        >
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          Sync
+          Sync with Alpaca
         </Button>
         {deployment.status === 'running' && (
           <Button variant="destructive" onClick={handleStop} disabled={stopping} className="gap-2">
@@ -207,6 +213,16 @@ export default function PaperTrading() {
       </PageHeader>
 
       <div className="px-8 pb-8 space-y-6">
+        {/* Info Banner */}
+        <div className="p-4 rounded-lg border border-primary/30 bg-primary/5">
+          <h4 className="font-medium text-sm mb-1">How Paper Trading Works</h4>
+          <p className="text-sm text-muted-foreground">
+            Paper trading runs against Alpaca's paper trading API. Click <strong>"Sync with Alpaca"</strong> to fetch the latest 
+            account positions, orders, and equity from Alpaca. The bot strategy is being executed server-side - 
+            data will update as trades are made. Target duration: {deployment.target_days} trading days.
+          </p>
+        </div>
+
         {/* Status bar */}
         <div className="flex items-center gap-4 flex-wrap">
           <StatusBadge status={deployment.status} />
@@ -215,6 +231,9 @@ export default function PaperTrading() {
           </span>
           <span className="text-sm text-muted-foreground">
             Target: {deployment.target_days} days
+          </span>
+          <span className="text-sm text-muted-foreground">
+            Symbols: {deployment.symbols?.join(', ') || 'QQQ'}
           </span>
           {deployment.passed !== null && (
             <span className={deployment.passed ? 'text-success font-medium' : 'text-destructive font-medium'}>
