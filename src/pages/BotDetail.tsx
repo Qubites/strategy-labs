@@ -8,8 +8,8 @@ import { MetricCard } from '@/components/ui/metric-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AICoachCard } from '@/components/AICoachCard';
 import { AIAdviceHistory } from '@/components/AIAdviceHistory';
-import { DuplicateBotDialog } from '@/components/DuplicateBotDialog';
 import { VersionTimeline } from '@/components/VersionTimeline';
+import { VersionEditorDialog } from '@/components/VersionEditorDialog';
 import { ExpectedBehavior } from '@/components/ExpectedBehavior';
 import { LifecycleStatusBadge, PipelineProgress, type LifecycleStatus } from '@/components/LifecycleStatus';
 import { supabase } from '@/integrations/supabase/client';
@@ -31,6 +31,7 @@ import {
   Brain,
   Zap,
   FileCheck,
+  Plus,
 } from 'lucide-react';
 import type { Bot as BotType, BotVersion, Run, Trade, ParamSchema } from '@/types/trading';
 
@@ -193,11 +194,6 @@ export default function BotDetail() {
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
-        <DuplicateBotDialog 
-          botVersionId={latestVersion?.id || ''} 
-          botName={bot.name}
-          onDuplicated={loadBotDetails}
-        />
         <Link to={`/bots/${bot.id}/run`}>
           <Button className="gap-2">
             <Play className="w-4 h-4" />
@@ -353,45 +349,64 @@ export default function BotDetail() {
           </TabsList>
 
           <TabsContent value="params">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Strategy Parameters */}
-              <div className="terminal-card p-6">
-                <h3 className="font-medium mb-4">Strategy Parameters</h3>
-                <div className="space-y-3">
-                  {schema?.params.map((param) => (
-                    <div key={param.key} className="flex justify-between py-2 border-b border-border/50">
-                      <span className="text-muted-foreground">{param.label}</span>
-                      <span className="font-mono text-primary">
-                        {String(latestParams[param.key] ?? param.default)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+            <div className="space-y-6">
+              {/* Create New Version Button */}
+              <div className="flex justify-end">
+                <VersionEditorDialog
+                  botId={bot.id}
+                  templateId={bot.template_id}
+                  sourceVersion={latestVersion}
+                  nextVersionNumber={Math.max(...versions.map(v => v.version_number), 0) + 1}
+                  onVersionCreated={loadBotDetails}
+                  trigger={
+                    <Button className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Create New Version
+                    </Button>
+                  }
+                />
               </div>
 
-              {/* Risk Limits */}
-              <div className="terminal-card p-6">
-                <h3 className="font-medium mb-4">Risk Limits</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Preset</span>
-                    <span className="font-medium">{latestRiskLimits.preset || 'Normal'}</span>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Strategy Parameters */}
+                <div className="terminal-card p-6">
+                  <h3 className="font-medium mb-4">Strategy Parameters</h3>
+                  <div className="space-y-3">
+                    {schema?.params.map((param) => (
+                      <div key={param.key} className="flex justify-between py-2 border-b border-border/50">
+                        <span className="text-muted-foreground">{param.label}</span>
+                        <span className="font-mono text-primary">
+                          {String(latestParams[param.key] ?? param.default)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex justify-between py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Max Position Size</span>
-                    <span className="font-mono">${latestRiskLimits.max_position_size_usd}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Max Daily Loss</span>
-                    <span className="font-mono">${latestRiskLimits.max_daily_loss_usd}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Max Drawdown</span>
-                    <span className="font-mono">${latestRiskLimits.max_drawdown_usd}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-border/50">
-                    <span className="text-muted-foreground">Max Consecutive Losses</span>
-                    <span className="font-mono">{latestRiskLimits.max_consecutive_losses}</span>
+                </div>
+
+                {/* Risk Limits */}
+                <div className="terminal-card p-6">
+                  <h3 className="font-medium mb-4">Risk Limits</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between py-2 border-b border-border/50">
+                      <span className="text-muted-foreground">Preset</span>
+                      <span className="font-medium">{latestRiskLimits.preset || 'Normal'}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-border/50">
+                      <span className="text-muted-foreground">Max Position Size</span>
+                      <span className="font-mono">${latestRiskLimits.max_position_size_usd}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-border/50">
+                      <span className="text-muted-foreground">Max Daily Loss</span>
+                      <span className="font-mono">${latestRiskLimits.max_daily_loss_usd}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-border/50">
+                      <span className="text-muted-foreground">Max Drawdown</span>
+                      <span className="font-mono">${latestRiskLimits.max_drawdown_usd}</span>
+                    </div>
+                    <div className="flex justify-between py-2 border-b border-border/50">
+                      <span className="text-muted-foreground">Max Consecutive Losses</span>
+                      <span className="font-mono">{latestRiskLimits.max_consecutive_losses}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -403,6 +418,7 @@ export default function BotDetail() {
               <VersionTimeline 
                 versions={versions} 
                 botId={bot.id}
+                templateId={bot.template_id}
                 onVersionCreated={loadBotDetails}
               />
             </div>

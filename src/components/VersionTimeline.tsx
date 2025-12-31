@@ -7,52 +7,23 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import { GitBranch, GitCompare, Loader2, ArrowUpRight, Copy } from 'lucide-react';
+import { GitBranch, GitCompare } from 'lucide-react';
 import type { BotVersion } from '@/types/trading';
+import { VersionEditorDialog } from './VersionEditorDialog';
 
 interface VersionTimelineProps {
   versions: BotVersion[];
   botId: string;
+  templateId: string;
   onVersionCreated: () => void;
 }
 
-export function VersionTimeline({ versions, botId, onVersionCreated }: VersionTimelineProps) {
-  const [forking, setForking] = useState<string | null>(null);
+export function VersionTimeline({ versions, botId, templateId, onVersionCreated }: VersionTimelineProps) {
   const [comparing, setComparing] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
 
-  async function handleForkVersion(version: BotVersion) {
-    setForking(version.id);
-    try {
-      const newVersionNumber = Math.max(...versions.map(v => v.version_number)) + 1;
-      
-      const { error } = await supabase
-        .from('bot_versions')
-        .insert({
-          bot_id: botId,
-          version_number: newVersionNumber,
-          params_json: version.params_json,
-          params_hash: `${version.params_hash}_fork_${Date.now()}`,
-          risk_limits_json: version.risk_limits_json,
-          version_hash: `${version.version_hash}_fork_${Date.now()}`,
-          status: 'draft',
-        });
-
-      if (error) throw error;
-
-      toast.success(`Forked version ${version.version_number} → v${newVersionNumber}`);
-      onVersionCreated();
-    } catch (error) {
-      console.error('Error forking version:', error);
-      toast.error('Failed to fork version');
-    } finally {
-      setForking(null);
-    }
-  }
+  const nextVersionNumber = Math.max(...versions.map(v => v.version_number), 0) + 1;
 
   function toggleCompare(versionId: string) {
     setComparing(prev => {
@@ -255,20 +226,19 @@ export function VersionTimeline({ versions, botId, onVersionCreated }: VersionTi
                   </div>
 
                   <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleForkVersion(version)}
-                      disabled={forking === version.id}
-                      className="gap-1"
-                    >
-                      {forking === version.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <GitBranch className="w-3 h-3" />
-                      )}
-                      Fork
-                    </Button>
+                    <VersionEditorDialog
+                      botId={botId}
+                      templateId={templateId}
+                      sourceVersion={version}
+                      nextVersionNumber={nextVersionNumber}
+                      onVersionCreated={onVersionCreated}
+                      trigger={
+                        <Button variant="ghost" size="sm" className="gap-1">
+                          <GitBranch className="w-3 h-3" />
+                          Fork & Edit
+                        </Button>
+                      }
+                    />
                   </div>
                 </div>
               </div>
