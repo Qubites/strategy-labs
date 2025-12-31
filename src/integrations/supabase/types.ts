@@ -318,7 +318,7 @@ export type Database = {
           {
             foreignKeyName: "live_candidates_version_id_fkey"
             columns: ["version_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "bot_versions"
             referencedColumns: ["id"]
           },
