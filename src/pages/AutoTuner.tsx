@@ -518,12 +518,12 @@ export default function AutoTuner() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Status</th>
-                        <th>Progress</th>
-                        <th>Best Score</th>
+                        <th className="w-28">Status</th>
+                        <th className="w-40">Progress</th>
+                        <th className="w-24">Best Score</th>
                         <th>Instructions</th>
-                        <th>Started</th>
-                        <th></th>
+                        <th className="w-28">Started</th>
+                        <th className="w-28 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -563,7 +563,7 @@ export default function AutoTuner() {
                             <td className="text-sm text-muted-foreground">
                               {format(new Date(job.created_at), 'MMM d, HH:mm')}
                             </td>
-                            <td>
+                            <td className="text-right">
                               {job.status === 'paused' && !runningJobId && (
                                 <Button
                                   size="sm"

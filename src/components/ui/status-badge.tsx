@@ -12,6 +12,8 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   approved_live: { label: 'Live', className: 'bg-success/20 text-success' },
   queued: { label: 'Queued', className: 'bg-muted text-muted-foreground' },
   running: { label: 'Running', className: 'bg-primary/20 text-primary animate-pulse' },
+  paused: { label: 'Paused', className: 'bg-warning/20 text-warning' },
+  completed: { label: 'Completed', className: 'bg-success/20 text-success' },
   done: { label: 'Done', className: 'bg-success/20 text-success' },
   failed: { label: 'Failed', className: 'bg-destructive/20 text-destructive' },
   stopped: { label: 'Stopped', className: 'bg-warning/20 text-warning' },
