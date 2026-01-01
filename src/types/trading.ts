@@ -13,6 +13,8 @@ export interface Dataset {
   dataset_hash: string;
   bar_count: number;
   created_at: string;
+  is_combined?: boolean;
+  source_dataset_ids?: string[];
 }
 
 export interface Instrument {

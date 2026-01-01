@@ -205,9 +205,11 @@ export type Database = {
           dataset_hash: string
           end_ts: string
           id: string
+          is_combined: boolean | null
           market_type: string
           session: string
           source: string
+          source_dataset_ids: string[] | null
           start_ts: string
           storage_path: string | null
           symbol: string
@@ -219,9 +221,11 @@ export type Database = {
           dataset_hash: string
           end_ts: string
           id?: string
+          is_combined?: boolean | null
           market_type?: string
           session?: string
           source?: string
+          source_dataset_ids?: string[] | null
           start_ts: string
           storage_path?: string | null
           symbol: string
@@ -233,9 +237,11 @@ export type Database = {
           dataset_hash?: string
           end_ts?: string
           id?: string
+          is_combined?: boolean | null
           market_type?: string
           session?: string
           source?: string
+          source_dataset_ids?: string[] | null
           start_ts?: string
           storage_path?: string | null
           symbol?: string

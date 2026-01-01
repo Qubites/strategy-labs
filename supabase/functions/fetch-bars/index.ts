@@ -54,18 +54,23 @@ serve(async (req) => {
       throw new Error('Failed to create job record');
     }
 
-    // Map timeframe to Alpaca format
+    // Map timeframe to Alpaca format - expanded to include more options
     const timeframeMap: Record<string, string> = {
       '1m': '1Min',
       '5m': '5Min',
       '15m': '15Min',
+      '30m': '30Min',
       '1h': '1Hour',
+      '60m': '1Hour',
       '1d': '1Day',
+      '1w': '1Week',
       '1Min': '1Min',
       '5Min': '5Min',
       '15Min': '15Min',
+      '30Min': '30Min',
       '1Hour': '1Hour',
       '1Day': '1Day',
+      '1Week': '1Week',
     };
     
     const alpacaTimeframe = timeframeMap[timeframe] || '1Min';
