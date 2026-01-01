@@ -120,6 +120,24 @@ serve(async (req) => {
 
     console.log(`Total bars fetched from Alpaca: ${allBars.length} across ${pageCount} page(s)`);
 
+    // Determine if a date is in US Eastern Daylight Saving Time
+    // DST in US: 2nd Sunday in March 2am to 1st Sunday in November 2am
+    const isDST = (date: Date): boolean => {
+      const year = date.getUTCFullYear();
+      
+      // Find 2nd Sunday in March (DST starts at 2am EST = 7am UTC)
+      const marchFirst = new Date(Date.UTC(year, 2, 1));
+      const marchFirstDay = marchFirst.getUTCDay();
+      const marchSecondSunday = new Date(Date.UTC(year, 2, 8 + (7 - marchFirstDay) % 7, 7, 0, 0));
+      
+      // Find 1st Sunday in November (DST ends at 2am EDT = 6am UTC)
+      const novFirst = new Date(Date.UTC(year, 10, 1));
+      const novFirstDay = novFirst.getUTCDay();
+      const novFirstSunday = new Date(Date.UTC(year, 10, 1 + (7 - novFirstDay) % 7, 6, 0, 0));
+      
+      return date >= marchSecondSunday && date < novFirstSunday;
+    };
+
     // Filter bars by session if not ALL
     let filteredBars = allBars;
     if (session !== 'ALL') {
@@ -129,19 +147,12 @@ serve(async (req) => {
         const minutes = barTime.getUTCMinutes();
         const timeInMinutes = hours * 60 + minutes;
         
-        // RTH: 9:30 AM - 4:00 PM ET (14:30 - 21:00 UTC during EST, 13:30 - 20:00 during EDT)
-        // Using approximate UTC times that cover both EST/EDT
-        // Pre-market: 4:00 AM - 9:30 AM ET (9:00 - 14:30 UTC)
-        // After-hours: 4:00 PM - 8:00 PM ET (21:00 - 1:00 UTC)
-        
-        // For simplicity, we'll use the bar's local market time
-        // Alpaca returns timestamps in UTC, market opens at 9:30 ET
-        // 9:30 ET = 14:30 UTC (winter) or 13:30 UTC (summer)
-        // 4:00 PM ET = 21:00 UTC (winter) or 20:00 UTC (summer)
-        
-        // RTH window in UTC minutes (using conservative window that works for both EST/EDT)
-        const rthStart = 13 * 60 + 30; // 13:30 UTC (covers DST)
-        const rthEnd = 21 * 60;         // 21:00 UTC
+        // RTH in Eastern Time: 9:30 AM - 4:00 PM
+        // EDT (summer/DST): UTC-4, so RTH = 13:30 - 20:00 UTC
+        // EST (winter/no DST): UTC-5, so RTH = 14:30 - 21:00 UTC
+        const inDST = isDST(barTime);
+        const rthStart = inDST ? (13 * 60 + 30) : (14 * 60 + 30); // 13:30 or 14:30 UTC
+        const rthEnd = inDST ? (20 * 60) : (21 * 60);              // 20:00 or 21:00 UTC
         
         if (session === 'RTH') {
           return timeInMinutes >= rthStart && timeInMinutes < rthEnd;
@@ -150,7 +161,7 @@ serve(async (req) => {
         }
         return true;
       });
-      console.log(`Filtered to ${filteredBars.length} bars for session: ${session}`);
+      console.log(`Filtered to ${filteredBars.length} bars for session: ${session} (DST-aware)`);
     }
 
     if (filteredBars.length > 0) {
