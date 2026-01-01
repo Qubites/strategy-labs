@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Download, Database, Loader2, Trash2, FileDown, Combine, X, Eye, Layers } from 'lucide-react';
+import { Download, Database, Loader2, Trash2, FileDown, Combine, X, Eye, Layers, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { Dataset } from '@/types/trading';
 import { format, subDays, subMonths, startOfYear } from 'date-fns';
 
@@ -59,6 +59,7 @@ export default function Datasets() {
   const [combining, setCombining] = useState(false);
   const [creatingCombined, setCreatingCombined] = useState(false);
   const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
+  const [resyncingId, setResyncingId] = useState<string | null>(null);
   
   // Form state - now supports comma-separated symbols
   const [symbols, setSymbols] = useState('QQQ');
@@ -364,6 +365,77 @@ export default function Datasets() {
       .map(d => d.symbol);
   }
 
+  // Re-sync dataset with correct session filtering
+  async function handleResync(ds: Dataset) {
+    if (ds.is_combined) return;
+    
+    setResyncingId(ds.id);
+    try {
+      toast.info(`Re-syncing ${ds.symbol}... This will re-download with corrected RTH filter.`);
+      
+      const { data, error } = await supabase.functions.invoke('fetch-bars', {
+        body: {
+          symbol: ds.symbol,
+          timeframe: ds.timeframe,
+          session: ds.session,
+          start: ds.start_ts,
+          end: ds.end_ts,
+          provider: 'alpaca',
+        },
+      });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      // Update the dataset with new bar count
+      const { error: updateError } = await supabase
+        .from('datasets')
+        .update({ bar_count: data.bar_count })
+        .eq('id', ds.id);
+
+      if (updateError) throw updateError;
+
+      toast.success(`Re-synced ${ds.symbol}: ${data.bar_count.toLocaleString()} bars`);
+      loadDatasets();
+    } catch (error) {
+      console.error('Error re-syncing dataset:', error);
+      toast.error(`Failed to re-sync: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setResyncingId(null);
+    }
+  }
+
+  // Estimate expected bars for a dataset (rough heuristic)
+  function getExpectedBarCount(ds: Dataset): number | null {
+    if (ds.is_combined) return null;
+    
+    const startDate = new Date(ds.start_ts);
+    const endDate = new Date(ds.end_ts);
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const tradingDays = Math.round(daysDiff * 0.71); // ~71% of days are trading days
+    
+    // Bars per trading day based on timeframe (for RTH ~6.5 hours)
+    const barsPerDay: Record<string, number> = {
+      '1m': 390,
+      '5m': 78,
+      '15m': 26,
+      '30m': 13,
+      '60m': 7,
+      '1d': 1,
+      '1w': 0.2,
+    };
+    
+    const perDay = barsPerDay[ds.timeframe] || 78;
+    return Math.round(tradingDays * perDay);
+  }
+
+  function isBarCountSuspicious(ds: Dataset): boolean {
+    const expected = getExpectedBarCount(ds);
+    if (!expected || expected < 10) return false;
+    // Flag if actual is less than 60% of expected
+    return ds.bar_count < expected * 0.6;
+  }
+
   return (
     <MainLayout>
       <PageHeader
@@ -632,7 +704,22 @@ export default function Datasets() {
                             {format(new Date(ds.start_ts), 'MMM d, yyyy')} →{' '}
                             {format(new Date(ds.end_ts), 'MMM d, yyyy')}
                           </td>
-                          <td>{ds.bar_count.toLocaleString()}</td>
+                          <td>
+                            <div className="flex items-center gap-1">
+                              <span>{ds.bar_count.toLocaleString()}</span>
+                              {isBarCountSuspicious(ds) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Bar count seems low. Expected ~{getExpectedBarCount(ds)?.toLocaleString()}.</p>
+                                    <p className="text-xs text-muted-foreground mt-1">Try re-syncing to fix RTH filter issues.</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </td>
                           <td className="capitalize">{ds.source}</td>
                           <td className="text-xs text-muted-foreground">
                             {format(new Date(ds.created_at), 'MMM d, HH:mm')}
@@ -647,14 +734,29 @@ export default function Datasets() {
                               <Eye className="w-4 h-4" />
                             </Button>
                             {!ds.is_combined && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleExportCsv(ds)}
-                                title="Export CSV"
-                              >
-                                <FileDown className="w-4 h-4" />
-                              </Button>
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleResync(ds)}
+                                  disabled={resyncingId === ds.id}
+                                  title="Re-sync data (re-download with fixed RTH filter)"
+                                >
+                                  {resyncingId === ds.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleExportCsv(ds)}
+                                  title="Export CSV"
+                                >
+                                  <FileDown className="w-4 h-4" />
+                                </Button>
+                              </>
                             )}
                             <Button
                               variant="ghost"
