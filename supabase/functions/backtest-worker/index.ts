@@ -18,6 +18,7 @@ interface Bar {
   l: number;
   c: number;
   v: number;
+  symbol?: string;
 }
 
 interface Trade {
@@ -93,17 +94,66 @@ serve(async (req) => {
       fixed_cost_per_trade: 0,
     };
 
-    // Fetch market bars for the dataset period
-    const { data: bars, error: barsError } = await supabase
-      .from('market_bars')
-      .select('ts, o, h, l, c, v')
-      .eq('symbol', dataset.symbol)
-      .eq('timeframe', dataset.timeframe)
-      .gte('ts', dataset.start_ts)
-      .lte('ts', dataset.end_ts)
-      .order('ts', { ascending: true });
+    // Fetch market bars - handle combined datasets
+    let bars: Bar[] = [];
+    
+    if (dataset.is_combined && dataset.source_dataset_ids) {
+      console.log(`Processing combined dataset with ${dataset.source_dataset_ids.length} sources`);
+      
+      // Fetch source datasets
+      const { data: sourceDatasets, error: sourceError } = await supabase
+        .from('datasets')
+        .select('*')
+        .in('id', dataset.source_dataset_ids);
+      
+      if (sourceError || !sourceDatasets) {
+        throw new Error('Failed to fetch source datasets for combined dataset');
+      }
+      
+      // Fetch bars from each source dataset
+      for (const sourceDs of sourceDatasets) {
+        console.log(`Fetching bars for source: ${sourceDs.symbol}`);
+        
+        const { data: sourceBars, error: barsError } = await supabase
+          .from('market_bars')
+          .select('ts, o, h, l, c, v, symbol')
+          .eq('symbol', sourceDs.symbol)
+          .eq('timeframe', sourceDs.timeframe)
+          .gte('ts', sourceDs.start_ts)
+          .lte('ts', sourceDs.end_ts)
+          .order('ts', { ascending: true });
+        
+        if (barsError) {
+          console.error(`Error fetching bars for ${sourceDs.symbol}:`, barsError);
+          continue;
+        }
+        
+        if (sourceBars && sourceBars.length > 0) {
+          console.log(`Got ${sourceBars.length} bars for ${sourceDs.symbol}`);
+          bars = bars.concat(sourceBars);
+        }
+      }
+      
+      // Sort all bars by timestamp
+      bars.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+      console.log(`Total combined bars: ${bars.length}`);
+    } else {
+      // Standard single dataset
+      const { data: singleBars, error: barsError } = await supabase
+        .from('market_bars')
+        .select('ts, o, h, l, c, v')
+        .eq('symbol', dataset.symbol)
+        .eq('timeframe', dataset.timeframe)
+        .gte('ts', dataset.start_ts)
+        .lte('ts', dataset.end_ts)
+        .order('ts', { ascending: true });
+      
+      if (!barsError && singleBars) {
+        bars = singleBars;
+      }
+    }
 
-    if (barsError || !bars || bars.length === 0) {
+    if (bars.length === 0) {
       console.log('No bars found, using simulated backtest');
       await runSimulatedBacktest(supabase, run_id, params, costModel, template.id, debug_mode);
     } else {
@@ -162,7 +212,7 @@ async function runRealBacktest(
 ) {
   const trades: Trade[] = [];
   const debugLogs: any[] = [];
-  let position: { side: string; entry_price: number; entry_time: string; qty: number } | null = null;
+  let position: { side: string; entry_price: number; entry_time: string; qty: number; symbol?: string } | null = null;
   
   // Strategy parameters
   const lookback = params.lookback_bars || params.z_lookback || 40;
@@ -312,6 +362,7 @@ async function runRealBacktest(
           entry_price: bar.c,
           entry_time: bar.ts,
           qty: 100, // Fixed qty for now
+          symbol: bar.symbol,
         };
         dailyTradeCount++;
       }
