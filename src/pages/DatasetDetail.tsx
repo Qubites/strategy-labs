@@ -17,6 +17,7 @@ import {
   Calendar,
   Loader2,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import type { Dataset } from '@/types/trading';
 
@@ -36,6 +37,7 @@ export default function DatasetDetail() {
   const [previewBars, setPreviewBars] = useState<{ first: MarketBar[]; last: MarketBar[] }>({ first: [], last: [] });
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
 
   useEffect(() => {
     if (id) loadDataset();
@@ -85,6 +87,43 @@ export default function DatasetDetail() {
       toast.error('Failed to load dataset');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRecalculateBarCount() {
+    if (!dataset) return;
+    
+    setRecalculating(true);
+    try {
+      // Count actual bars in market_bars that match this dataset's session
+      const { count, error } = await supabase
+        .from('market_bars')
+        .select('*', { count: 'exact', head: true })
+        .eq('symbol', dataset.symbol)
+        .eq('timeframe', dataset.timeframe)
+        .eq('session', dataset.session)
+        .gte('ts', dataset.start_ts)
+        .lte('ts', dataset.end_ts);
+
+      if (error) throw error;
+
+      const actualCount = count || 0;
+
+      // Update the dataset record
+      const { error: updateError } = await supabase
+        .from('datasets')
+        .update({ bar_count: actualCount })
+        .eq('id', dataset.id);
+
+      if (updateError) throw updateError;
+
+      setDataset({ ...dataset, bar_count: actualCount });
+      toast.success(`Bar count updated: ${actualCount.toLocaleString()} bars`);
+    } catch (error) {
+      console.error('Error recalculating bar count:', error);
+      toast.error('Failed to recalculate bar count');
+    } finally {
+      setRecalculating(false);
     }
   }
 
@@ -283,8 +322,28 @@ export default function DatasetDetail() {
           </div>
         </div>
 
-        {/* Export Actions */}
+        {/* Data Actions */}
         <div className="terminal-card p-6">
+          <h3 className="font-medium mb-4">Data Management</h3>
+          <div className="flex flex-wrap gap-4 mb-6">
+            <Button
+              variant="outline"
+              onClick={handleRecalculateBarCount}
+              disabled={recalculating}
+              className="gap-2"
+            >
+              {recalculating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Recalculate Bar Count
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-6">
+            Recalculate counts actual bars in database matching this dataset's session filter.
+          </p>
+          
           <h3 className="font-medium mb-4">Download Options</h3>
           <div className="flex flex-wrap gap-4">
             <Button
