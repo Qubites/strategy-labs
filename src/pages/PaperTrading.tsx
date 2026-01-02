@@ -226,8 +226,13 @@ export default function PaperTrading() {
         {/* Status bar */}
         <div className="flex items-center gap-4 flex-wrap">
           <StatusBadge status={deployment.status} />
+          {deployment.halted && (
+            <span className="text-destructive font-medium text-sm">
+              ⚠ HALTED: {deployment.halt_reason}
+            </span>
+          )}
           <span className="text-sm text-muted-foreground">
-            Started: {format(new Date(deployment.started_at), 'MMM d, yyyy HH:mm')}
+            Started: {deployment.started_at ? format(new Date(deployment.started_at), 'MMM d, yyyy HH:mm') : '—'}
           </span>
           <span className="text-sm text-muted-foreground">
             Target: {deployment.target_days} days
@@ -241,6 +246,45 @@ export default function PaperTrading() {
             </span>
           )}
         </div>
+
+        {/* Live Trading Status */}
+        {deployment.status === 'running' && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-lg border border-border bg-muted/30">
+            <div>
+              <span className="text-xs text-muted-foreground">Last Signal</span>
+              <p className="font-mono text-sm">
+                {deployment.last_signal_type || 'none'} 
+                {deployment.last_signal_at && (
+                  <span className="text-muted-foreground ml-1">
+                    @ {format(new Date(deployment.last_signal_at), 'HH:mm')}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Current Position</span>
+              <p className="font-mono text-sm">
+                {deployment.current_position ? (
+                  <span className={deployment.current_position.side === 'long' ? 'text-success' : 'text-destructive'}>
+                    {deployment.current_position.side.toUpperCase()} {deployment.current_position.qty} @ ${deployment.current_position.entry_price?.toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Flat</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Daily P&L</span>
+              <p className={`font-mono text-sm ${(deployment.daily_pnl || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                ${(deployment.daily_pnl || 0).toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Today's Trades</span>
+              <p className="font-mono text-sm">{deployment.daily_trades || 0}</p>
+            </div>
+          </div>
+        )}
 
         {/* Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -608,8 +608,15 @@ export type Database = {
           bot_version_id: string
           config_json: Json | null
           created_at: string
+          current_position: Json | null
+          daily_pnl: number | null
+          daily_trades: number | null
           ended_at: string | null
+          halt_reason: string | null
+          halted: boolean | null
           id: string
+          last_signal_at: string | null
+          last_signal_type: string | null
           pass_criteria: Json
           passed: boolean | null
           reject_reason: string | null
@@ -624,8 +631,15 @@ export type Database = {
           bot_version_id: string
           config_json?: Json | null
           created_at?: string
+          current_position?: Json | null
+          daily_pnl?: number | null
+          daily_trades?: number | null
           ended_at?: string | null
+          halt_reason?: string | null
+          halted?: boolean | null
           id?: string
+          last_signal_at?: string | null
+          last_signal_type?: string | null
           pass_criteria?: Json
           passed?: boolean | null
           reject_reason?: string | null
@@ -640,8 +654,15 @@ export type Database = {
           bot_version_id?: string
           config_json?: Json | null
           created_at?: string
+          current_position?: Json | null
+          daily_pnl?: number | null
+          daily_trades?: number | null
           ended_at?: string | null
+          halt_reason?: string | null
+          halted?: boolean | null
           id?: string
+          last_signal_at?: string | null
+          last_signal_type?: string | null
           pass_criteria?: Json
           passed?: boolean | null
           reject_reason?: string | null
