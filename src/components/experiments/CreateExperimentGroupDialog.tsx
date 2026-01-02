@@ -79,7 +79,7 @@ export function CreateExperimentGroupDialog({
         .insert({
           name: name.trim(),
           template_id: templateId,
-          dataset_id: datasetId || null,
+          dataset_id: datasetId && datasetId !== 'any' ? datasetId : null,
           timeframe,
           session,
           objective_config: {
@@ -171,7 +171,7 @@ export function CreateExperimentGroupDialog({
                 <SelectValue placeholder="Any dataset..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Any dataset</SelectItem>
+                <SelectItem value="any">Any dataset</SelectItem>
                 {datasets.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
                     {d.symbol} • {d.timeframe} • {d.session}
