@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.paper-evaluate]
 verify_jwt = false
+
+[functions.iteration-engine]
+verify_jwt = false
