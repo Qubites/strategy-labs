@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { IterationHistory } from '@/components/experiments/IterationHistory';
+import { AutomationControls } from '@/components/experiments/AutomationControls';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
@@ -18,9 +19,12 @@ import {
   TrendingUp,
   TrendingDown,
   Loader2,
+  Play,
+  Zap,
+  Settings,
 } from 'lucide-react';
 import type { ExperimentGroupWithDetails } from '@/types/experiments';
-import type { BotVersion, Run } from '@/types/trading';
+import type { BotVersion } from '@/types/trading';
 
 interface VersionWithMetrics extends BotVersion {
   best_pf?: number;
@@ -39,6 +43,11 @@ export default function ExperimentGroupDetail() {
   const [versions, setVersions] = useState<VersionWithMetrics[]>([]);
   const [loading, setLoading] = useState(true);
   const [settingChampion, setSettingChampion] = useState<string | null>(null);
+  const [runningIterations, setRunningIterations] = useState(false);
+  const [iterationSettings, setIterationSettings] = useState({
+    maxIterations: 5,
+    aggressiveness: 0.5,
+  });
 
   useEffect(() => {
     if (id) loadGroup();
@@ -159,6 +168,34 @@ export default function ExperimentGroupDetail() {
     }
   }
 
+  async function runIterations() {
+    if (!id) return;
+    
+    setRunningIterations(true);
+    try {
+      const response = await supabase.functions.invoke('iteration-engine', {
+        body: {
+          experiment_group_id: id,
+          trigger_type: 'auto_tuner',
+          max_iterations: iterationSettings.maxIterations,
+          mutation_aggressiveness: iterationSettings.aggressiveness,
+        },
+      });
+
+      if (response.error) throw response.error;
+
+      const result = response.data;
+      toast.success(
+        `Completed ${result.iterations_run} iterations. ${result.successful_iterations} improvements found.`
+      );
+      loadGroup();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to run iterations');
+    } finally {
+      setRunningIterations(false);
+    }
+  }
+
   if (loading) {
     return (
       <MainLayout>
@@ -187,10 +224,24 @@ export default function ExperimentGroupDetail() {
   return (
     <MainLayout>
       <PageHeader title={group.name} description="Experiment Group Leaderboard">
-        <Button variant="outline" onClick={() => window.history.back()} className="gap-2">
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.history.back()} className="gap-2">
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </Button>
+          <Button
+            onClick={runIterations}
+            disabled={runningIterations}
+            className="gap-2"
+          >
+            {runningIterations ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Zap className="w-4 h-4" />
+            )}
+            Run Auto-Iterations
+          </Button>
+        </div>
       </PageHeader>
 
       <div className="px-8 pb-8 space-y-6">
