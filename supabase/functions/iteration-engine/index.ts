@@ -42,15 +42,15 @@ serve(async (req) => {
       gates = {},
     } = await req.json() as IterationRequest;
 
-    // Default gates - more realistic thresholds
+    // Default gates - focus on absolute score, not percentage improvement
     const gateConfig = {
       min_trades: gates.min_trades ?? 5,
-      max_dd: gates.max_dd ?? 0.50, // 50% max drawdown - realistic for trading
-      min_improvement: gates.min_improvement ?? -0.05, // Allow small regressions for exploration
+      max_dd: gates.max_dd ?? 0.50,
+      min_improvement: gates.min_improvement ?? 0, // Only accept equal or better
     };
 
     console.log(`Starting iteration engine for group: ${experiment_group_id}`);
-    console.log(`Gates: min_trades=${gateConfig.min_trades}, max_dd=${gateConfig.max_dd}, min_improvement=${gateConfig.min_improvement}`);
+    console.log(`Gates: min_trades=${gateConfig.min_trades}, max_dd=${gateConfig.max_dd}`);
 
     // Fetch experiment group with all related data
     const { data: group, error: groupError } = await supabase
@@ -283,23 +283,24 @@ serve(async (req) => {
         gateConfig
       );
 
-      // Determine acceptance
-      const allGatesPassed = Object.values(gateResults).every(g => g.passed);
-      
-      // Also accept if score improved significantly even if some gates fail
+      // Calculate scores - accept ONLY if challenger is better
       const currentScore = calculateScore(currentBestMetrics, objectiveConfig);
       const challengerScore = calculateScore(challengerMetrics, objectiveConfig);
-      const scoreImproved = challengerScore > currentScore * 1.05; // 5% improvement threshold
       
-      let accepted = allGatesPassed || scoreImproved;
+      // Simple rule: challenger must have higher score AND meet basic gates
+      const tradesOk = challengerMetrics.trades_count >= gateConfig.min_trades;
+      const ddOk = challengerMetrics.max_drawdown <= gateConfig.max_dd;
+      const scoreOk = challengerScore >= currentScore; // Must be equal or better
+      
+      let accepted = tradesOk && ddOk && scoreOk;
       let rejectReason = null;
 
       if (!accepted) {
-        const failedGates = Object.entries(gateResults)
-          .filter(([_, g]: [string, any]) => !g.passed)
-          .map(([k, g]: [string, any]) => `${k}: ${g.actual?.toFixed(2)} vs ${g.required}`)
-          .join(', ');
-        rejectReason = `Failed gates: ${failedGates}`;
+        const reasons: string[] = [];
+        if (!tradesOk) reasons.push(`trades: ${challengerMetrics.trades_count} < ${gateConfig.min_trades}`);
+        if (!ddOk) reasons.push(`dd: ${(challengerMetrics.max_drawdown * 100).toFixed(1)}% > ${(gateConfig.max_dd * 100).toFixed(1)}%`);
+        if (!scoreOk) reasons.push(`score: ${challengerScore.toFixed(3)} < ${currentScore.toFixed(3)}`);
+        rejectReason = reasons.join(', ');
       }
 
       // Create iteration record
@@ -403,7 +404,7 @@ serve(async (req) => {
   }
 });
 
-// Mutate params within schema bounds
+// Mutate params with VERY small changes - exploitation not exploration
 function mutateParams(
   currentParams: Record<string, any>,
   schemaParams: any[],
@@ -411,45 +412,34 @@ function mutateParams(
 ): Record<string, any> {
   const mutated = { ...currentParams };
   
-  // Number of params to mutate based on aggressiveness (1-3 typically)
-  const numMutations = Math.max(1, Math.min(3, Math.floor(schemaParams.length * aggressiveness * 0.4)));
-  
-  // Shuffle and pick params to mutate
+  // Only mutate 1 param at a time for fine-tuning
   const mutableParams = schemaParams.filter(p => 
-    p.type === 'int' || p.type === 'float' || p.type === 'bool'
+    p.type === 'int' || p.type === 'float'
   );
-  const shuffled = [...mutableParams].sort(() => Math.random() - 0.5);
+  
+  if (mutableParams.length === 0) return mutated;
+  
+  // Pick ONE random param to tweak
+  const param = mutableParams[Math.floor(Math.random() * mutableParams.length)];
+  const key = param.key;
+  const current = currentParams[key] ?? param.default;
 
-  for (let i = 0; i < Math.min(numMutations, shuffled.length); i++) {
-    const param = shuffled[i];
-    const key = param.key;
-    const current = currentParams[key] ?? param.default;
-
-    if (param.type === 'int') {
-      const range = param.max - param.min;
-      const step = param.step || 1;
-      // Smaller, more controlled mutations
-      const maxSteps = Math.ceil(range * aggressiveness * 0.2 / step);
-      const stepChange = Math.floor(Math.random() * (maxSteps * 2 + 1)) - maxSteps;
-      let newVal = current + stepChange * step;
-      newVal = Math.max(param.min, Math.min(param.max, newVal));
-      mutated[key] = Math.round(newVal);
-    } else if (param.type === 'float') {
-      const range = param.max - param.min;
-      const step = param.step || 0.01;
-      // Smaller percentage-based mutations
-      const delta = (Math.random() - 0.5) * range * aggressiveness * 0.25;
-      let newVal = current + delta;
-      newVal = Math.max(param.min, Math.min(param.max, newVal));
-      // Round to step
-      newVal = Math.round(newVal / step) * step;
-      mutated[key] = Number(newVal.toFixed(4));
-    } else if (param.type === 'bool') {
-      // Low probability of flipping booleans
-      if (Math.random() < aggressiveness * 0.15) {
-        mutated[key] = !current;
-      }
-    }
+  if (param.type === 'int') {
+    const step = param.step || 1;
+    // Tiny change: +/- 1-2 steps
+    const direction = Math.random() > 0.5 ? 1 : -1;
+    const steps = Math.ceil(aggressiveness * 2);
+    let newVal = current + direction * steps * step;
+    newVal = Math.max(param.min, Math.min(param.max, newVal));
+    mutated[key] = Math.round(newVal);
+  } else if (param.type === 'float') {
+    const step = param.step || 0.01;
+    // Tiny change: +/- 5-10% of current value
+    const pctChange = (Math.random() - 0.5) * 0.1 * aggressiveness;
+    let newVal = current * (1 + pctChange);
+    newVal = Math.max(param.min, Math.min(param.max, newVal));
+    newVal = Math.round(newVal / step) * step;
+    mutated[key] = Number(newVal.toFixed(4));
   }
 
   return mutated;
