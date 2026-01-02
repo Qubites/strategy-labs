@@ -379,6 +379,7 @@ export type Database = {
           id: string
           l: number
           o: number
+          session: string | null
           symbol: string
           timeframe: string
           ts: string
@@ -391,6 +392,7 @@ export type Database = {
           id?: string
           l: number
           o: number
+          session?: string | null
           symbol: string
           timeframe: string
           ts: string
@@ -403,6 +405,7 @@ export type Database = {
           id?: string
           l?: number
           o?: number
+          session?: string | null
           symbol?: string
           timeframe?: string
           ts?: string

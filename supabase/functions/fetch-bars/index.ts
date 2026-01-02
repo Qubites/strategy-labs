@@ -165,10 +165,11 @@ serve(async (req) => {
     }
 
     if (filteredBars.length > 0) {
-      // Transform bars to our format
+      // Transform bars to our format - include session context
       const marketBars = filteredBars.map((bar: any) => ({
         symbol,
         timeframe,
+        session, // Store the session type with each bar
         ts: bar.t,
         o: bar.o,
         h: bar.h,
@@ -183,7 +184,7 @@ serve(async (req) => {
         const batch = marketBars.slice(i, i + BATCH_SIZE);
         const { error: insertError } = await supabase
           .from('market_bars')
-          .upsert(batch, { onConflict: 'symbol,timeframe,ts' });
+          .upsert(batch, { onConflict: 'symbol,timeframe,session,ts' });
 
         if (insertError) {
           console.error(`Error inserting batch ${Math.floor(i / BATCH_SIZE) + 1}:`, insertError);
