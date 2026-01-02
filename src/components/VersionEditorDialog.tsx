@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, ArrowRight, GitCompare } from 'lucide-react';
 import type { BotVersion, ParamSchema, ParamDefinition, RiskLimits } from '@/types/trading';
 
 interface VersionEditorDialogProps {
@@ -131,6 +132,46 @@ export function VersionEditorDialog({
     }
   }
 
+  // Calculate changes from source version
+  const changes = useMemo(() => {
+    if (!sourceVersion || !schema) return { params: [], risks: [] };
+    
+    const sourceParams = JSON.parse(sourceVersion.params_json);
+    const sourceRisks = JSON.parse(sourceVersion.risk_limits_json);
+    
+    const paramChanges: { key: string; label: string; before: any; after: any }[] = [];
+    const riskChanges: { key: string; before: any; after: any }[] = [];
+    
+    // Compare params
+    schema.params.forEach(param => {
+      if (JSON.stringify(params[param.key]) !== JSON.stringify(sourceParams[param.key])) {
+        paramChanges.push({
+          key: param.key,
+          label: param.label,
+          before: sourceParams[param.key],
+          after: params[param.key],
+        });
+      }
+    });
+    
+    // Compare risk limits
+    if (riskLimits) {
+      Object.keys(riskLimits).forEach(key => {
+        if (JSON.stringify(riskLimits[key as keyof RiskLimits]) !== JSON.stringify(sourceRisks[key])) {
+          riskChanges.push({
+            key,
+            before: sourceRisks[key],
+            after: riskLimits[key as keyof RiskLimits],
+          });
+        }
+      });
+    }
+    
+    return { params: paramChanges, risks: riskChanges };
+  }, [params, riskLimits, sourceVersion, schema]);
+
+  const hasChanges = changes.params.length > 0 || changes.risks.length > 0;
+
   const renderParamControl = (param: ParamDefinition) => {
     const value = params[param.key];
     const dependsOn = param.depends_on;
@@ -227,6 +268,48 @@ export function VersionEditorDialog({
 
         {schema ? (
           <div className="space-y-6 py-4">
+            {/* Changes Summary - only show when forking */}
+            {sourceVersion && (
+              <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                <div className="flex items-center gap-2 mb-3">
+                  <GitCompare className="w-4 h-4 text-primary" />
+                  <h4 className="font-medium text-sm">Changes Summary</h4>
+                  {hasChanges ? (
+                    <Badge variant="default" className="ml-auto">
+                      {changes.params.length + changes.risks.length} changes
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="ml-auto">No changes yet</Badge>
+                  )}
+                </div>
+                
+                {hasChanges ? (
+                  <div className="space-y-2 text-sm">
+                    {changes.params.map(change => (
+                      <div key={change.key} className="flex items-center gap-2 font-mono bg-background/50 px-2 py-1 rounded">
+                        <span className="text-muted-foreground">{change.key}:</span>
+                        <span className="text-destructive/70">{String(change.before)}</span>
+                        <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-success">{String(change.after)}</span>
+                      </div>
+                    ))}
+                    {changes.risks.map(change => (
+                      <div key={change.key} className="flex items-center gap-2 font-mono bg-background/50 px-2 py-1 rounded">
+                        <span className="text-muted-foreground">{change.key}:</span>
+                        <span className="text-destructive/70">{String(change.before)}</span>
+                        <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-success">{String(change.after)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Modify parameters below to see changes from v{sourceVersion.version_number}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Strategy Parameters */}
             <div className="space-y-4">
               <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">

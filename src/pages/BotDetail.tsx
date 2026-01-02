@@ -12,6 +12,7 @@ import { VersionTimeline } from '@/components/VersionTimeline';
 import { VersionEditorDialog } from '@/components/VersionEditorDialog';
 import { ExpectedBehavior } from '@/components/ExpectedBehavior';
 import { LifecycleStatusBadge, PipelineProgress, type LifecycleStatus } from '@/components/LifecycleStatus';
+import { PipelineWizard } from '@/components/pipeline/PipelineWizard';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -32,8 +33,10 @@ import {
   Zap,
   FileCheck,
   Plus,
+  Workflow,
 } from 'lucide-react';
 import type { Bot as BotType, BotVersion, Run, Trade, ParamSchema } from '@/types/trading';
+import type { PipelineState } from '@/types/experiments';
 
 export default function BotDetail() {
   const { id } = useParams<{ id: string }>();
@@ -47,6 +50,8 @@ export default function BotDetail() {
   const [promoting, setPromoting] = useState<string | null>(null);
   const [liveCandidate, setLiveCandidate] = useState<any>(null);
   const [paperDeploymentId, setPaperDeploymentId] = useState<string | null>(null);
+  const [pipelineState, setPipelineState] = useState<PipelineState | null>(null);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   useEffect(() => {
     if (id) loadBotDetails();
@@ -126,6 +131,17 @@ export default function BotDetail() {
           .single();
 
         setPaperDeploymentId(paperDep?.id || null);
+      }
+
+      // Load pipeline state
+      const { data: pipelineData } = await supabase
+        .from('pipeline_states')
+        .select('*')
+        .eq('bot_id', id)
+        .single();
+
+      if (pipelineData) {
+        setPipelineState(pipelineData as unknown as PipelineState);
       }
     } catch (error) {
       console.error('Error loading bot:', error);
@@ -217,6 +233,14 @@ export default function BotDetail() {
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
+        <Button 
+          variant="outline" 
+          onClick={() => setShowPipeline(!showPipeline)} 
+          className="gap-2"
+        >
+          <Workflow className="w-4 h-4" />
+          {showPipeline ? 'Hide Pipeline' : 'Show Pipeline'}
+        </Button>
         <Link to={`/bots/${bot.id}/run`}>
           <Button className="gap-2">
             <Play className="w-4 h-4" />
@@ -226,6 +250,15 @@ export default function BotDetail() {
       </PageHeader>
 
       <div className="px-8 pb-8 space-y-6">
+        {/* Pipeline Wizard - Collapsible */}
+        {showPipeline && (
+          <PipelineWizard
+            botId={bot.id}
+            templateId={bot.template_id}
+            onStepComplete={() => loadBotDetails()}
+          />
+        )}
+        
         {/* Pipeline Progress */}
         <div className="terminal-card p-6">
           <div className="flex items-center justify-between mb-4">
