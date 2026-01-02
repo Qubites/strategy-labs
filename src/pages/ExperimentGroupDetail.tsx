@@ -286,7 +286,7 @@ export default function ExperimentGroupDetail() {
                         }>
                           ${(version.best_pnl || 0).toFixed(2)}
                         </td>
-                        <td>{((version.best_win_rate || 0)).toFixed(1)}%</td>
+                        <td>{((version.best_win_rate || 0) * 100).toFixed(1)}%</td>
                         <td>{version.runs_count}</td>
                         <td>
                           {!isChampion && (
@@ -320,7 +320,7 @@ export default function ExperimentGroupDetail() {
 
           <TabsContent value="iterations">
             <div className="terminal-card p-4">
-              <IterationHistory experimentGroupId={id} />
+              {id && <IterationHistory experimentGroupId={id} />}
             </div>
           </TabsContent>
         </Tabs>
