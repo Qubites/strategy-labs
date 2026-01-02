@@ -16,6 +16,11 @@ interface IterationRequest {
   max_iterations?: number;
   mutation_aggressiveness?: number;
   stop_on_failure?: boolean;
+  gates?: {
+    min_trades?: number;
+    max_dd?: number;
+    min_improvement?: number;
+  };
 }
 
 serve(async (req) => {
@@ -34,9 +39,18 @@ serve(async (req) => {
       max_iterations = 10,
       mutation_aggressiveness = 0.5,
       stop_on_failure = false,
+      gates = {},
     } = await req.json() as IterationRequest;
 
+    // Default gates - more realistic thresholds
+    const gateConfig = {
+      min_trades: gates.min_trades ?? 5,
+      max_dd: gates.max_dd ?? 0.50, // 50% max drawdown - realistic for trading
+      min_improvement: gates.min_improvement ?? -0.05, // Allow small regressions for exploration
+    };
+
     console.log(`Starting iteration engine for group: ${experiment_group_id}`);
+    console.log(`Gates: min_trades=${gateConfig.min_trades}, max_dd=${gateConfig.max_dd}, min_improvement=${gateConfig.min_improvement}`);
 
     // Fetch experiment group with all related data
     const { data: group, error: groupError } = await supabase
@@ -79,17 +93,26 @@ serve(async (req) => {
       }
     }
 
-    // If still no version, we need a seed version
+    const template = group.strategy_templates;
+    const dataset = group.datasets;
+    const objectiveConfig = group.objective_config as Record<string, number>;
+
+    if (!template) {
+      throw new Error('Template not found');
+    }
+
+    // Parse schema
+    const paramSchema = JSON.parse(template.param_schema_json || '{}');
+
+    // If still no version, create a seed version
     if (!championVersion) {
-      // Create a seed version with default params
-      const paramSchema = JSON.parse(group.strategy_templates?.param_schema_json || '{}');
       const defaultParams: Record<string, any> = {};
       
       for (const param of (paramSchema.params || [])) {
         defaultParams[param.key] = param.default;
       }
 
-      // First create a bot for this experiment
+      // Create a bot for this experiment
       const { data: newBot, error: botError } = await supabase
         .from('bots')
         .insert({
@@ -112,7 +135,7 @@ serve(async (req) => {
           version_number: 1,
           params_json: JSON.stringify(defaultParams),
           params_hash: hashObject(defaultParams),
-          risk_limits_json: JSON.stringify(paramSchema.risk_limits || {}),
+          risk_limits_json: JSON.stringify(paramSchema.default_risk_limits || {}),
           version_hash: hashObject({ params: defaultParams }),
           status: 'draft',
           is_champion: true,
@@ -133,20 +156,33 @@ serve(async (req) => {
         .eq('id', experiment_group_id);
     }
 
-    const template = group.strategy_templates;
-    const dataset = group.datasets;
-    const objectiveConfig = group.objective_config as Record<string, number>;
-
-    if (!template) {
-      throw new Error('Template not found');
-    }
-
-    // Get current champion metrics for comparison
+    // Get current champion metrics - if no runs exist, run a baseline first
+    let championMetrics = await getVersionBestMetrics(supabase, championVersion.id);
     const championParams = JSON.parse(championVersion.params_json || '{}');
-    const championMetrics = await getVersionBestMetrics(supabase, championVersion.id);
 
-    // Parse schema
-    const paramSchema = JSON.parse(template.param_schema_json || '{}');
+    // If champion has no metrics (no backtests run), run one first
+    if (championMetrics.trades_count === 0) {
+      console.log('Champion has no metrics - running baseline backtest first');
+      
+      if (dataset) {
+        await runBacktestForVersion(
+          supabase,
+          championVersion.id,
+          dataset.id,
+          SUPABASE_URL,
+          SUPABASE_SERVICE_ROLE_KEY
+        );
+      } else {
+        await runSimulatedBacktest(supabase, championVersion.id, championParams);
+      }
+      
+      // Wait a moment for metrics to be written
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Re-fetch champion metrics
+      championMetrics = await getVersionBestMetrics(supabase, championVersion.id);
+      console.log('Champion baseline metrics:', championMetrics);
+    }
 
     // Get current iteration count
     const { count: iterationCount } = await supabase
@@ -158,14 +194,19 @@ serve(async (req) => {
     let successfulIterations = 0;
     const results: any[] = [];
 
+    // Track current best for progressive improvement
+    let currentBestParams = { ...championParams };
+    let currentBestMetrics = { ...championMetrics };
+    let currentChampionId = championVersion.id;
+
     // Run iterations
     for (let i = 0; i < max_iterations; i++) {
       const iterNum = currentIterNum + i;
       console.log(`Running iteration ${iterNum}`);
 
-      // Mutate parameters
+      // Mutate parameters from current best
       const mutatedParams = mutateParams(
-        championParams,
+        currentBestParams,
         paramSchema.params || [],
         mutation_aggressiveness
       );
@@ -173,21 +214,31 @@ serve(async (req) => {
       // Calculate param diff
       const paramDiff: Record<string, { before: any; after: any }> = {};
       for (const key of Object.keys(mutatedParams)) {
-        if (mutatedParams[key] !== championParams[key]) {
+        if (mutatedParams[key] !== currentBestParams[key]) {
           paramDiff[key] = {
-            before: championParams[key],
+            before: currentBestParams[key],
             after: mutatedParams[key],
           };
         }
       }
 
+      // Get current version number for this bot
+      const { data: latestVersions } = await supabase
+        .from('bot_versions')
+        .select('version_number')
+        .eq('bot_id', championVersion.bot_id)
+        .order('version_number', { ascending: false })
+        .limit(1);
+
+      const nextVersionNum = ((latestVersions?.[0]?.version_number) || 0) + 1;
+
       // Create challenger version
-      const challengerInsertResult: { data: any; error: any } = await supabase
+      const challengerInsertResult = await supabase
         .from('bot_versions')
         .insert({
           bot_id: championVersion.bot_id,
           experiment_group_id,
-          version_number: championVersion.version_number + iterNum,
+          version_number: nextVersionNum,
           params_json: JSON.stringify(mutatedParams),
           params_hash: hashObject(mutatedParams),
           risk_limits_json: championVersion.risk_limits_json,
@@ -203,12 +254,11 @@ serve(async (req) => {
         continue;
       }
 
-      const challengerVersion: any = challengerInsertResult.data;
+      const challengerVersion = challengerInsertResult.data;
 
       // Run backtest for challenger
-      let runResult;
       if (dataset) {
-        runResult = await runBacktestForVersion(
+        await runBacktestForVersion(
           supabase,
           challengerVersion.id,
           dataset.id,
@@ -216,19 +266,32 @@ serve(async (req) => {
           SUPABASE_SERVICE_ROLE_KEY
         );
       } else {
-        // Run simulated backtest
-        runResult = await runSimulatedBacktest(supabase, challengerVersion.id);
+        await runSimulatedBacktest(supabase, challengerVersion.id, mutatedParams);
       }
+
+      // Wait for backtest to complete
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Get challenger metrics
       const challengerMetrics = await getVersionBestMetrics(supabase, challengerVersion.id);
 
-      // Evaluate gates
-      const gateResults = evaluateGates(championMetrics, challengerMetrics, objectiveConfig);
+      // Evaluate gates comparing to current best (not original champion)
+      const gateResults = evaluateGates(
+        currentBestMetrics, 
+        challengerMetrics, 
+        objectiveConfig,
+        gateConfig
+      );
 
       // Determine acceptance
       const allGatesPassed = Object.values(gateResults).every(g => g.passed);
-      let accepted = allGatesPassed;
+      
+      // Also accept if score improved significantly even if some gates fail
+      const currentScore = calculateScore(currentBestMetrics, objectiveConfig);
+      const challengerScore = calculateScore(challengerMetrics, objectiveConfig);
+      const scoreImproved = challengerScore > currentScore * 1.05; // 5% improvement threshold
+      
+      let accepted = allGatesPassed || scoreImproved;
       let rejectReason = null;
 
       if (!accepted) {
@@ -240,11 +303,11 @@ serve(async (req) => {
       }
 
       // Create iteration record
-      const { data: iteration } = await supabase
+      await supabase
         .from('iterations')
         .insert({
           experiment_group_id,
-          parent_version_id: championVersion.id,
+          parent_version_id: currentChampionId,
           child_version_id: challengerVersion.id,
           iteration_number: iterNum,
           trigger_type,
@@ -254,13 +317,11 @@ serve(async (req) => {
             ? `Auto-tuned ${Object.keys(paramDiff).length} parameters with ${(mutation_aggressiveness * 100).toFixed(0)}% aggressiveness`
             : null,
           gate_results: gateResults,
-          metric_before: championMetrics,
+          metric_before: currentBestMetrics,
           metric_after: challengerMetrics,
           accepted,
           reject_reason: rejectReason,
-        })
-        .select()
-        .single();
+        });
 
       results.push({
         iteration_number: iterNum,
@@ -269,9 +330,11 @@ serve(async (req) => {
         param_diff: paramDiff,
         gate_results: gateResults,
         reject_reason: rejectReason,
+        score_before: currentScore,
+        score_after: challengerScore,
       });
 
-      // If accepted, promote challenger to champion
+      // If accepted, promote challenger
       if (accepted) {
         successfulIterations++;
 
@@ -279,7 +342,7 @@ serve(async (req) => {
         await supabase
           .from('bot_versions')
           .update({ is_champion: false })
-          .eq('id', championVersion.id);
+          .eq('id', currentChampionId);
 
         // Set new champion
         await supabase
@@ -296,12 +359,12 @@ serve(async (req) => {
           })
           .eq('id', experiment_group_id);
 
-        // Update champion for next iteration
-        championVersion = { ...challengerVersion, bots: championVersion.bots };
-        Object.assign(championParams, mutatedParams);
-        Object.assign(championMetrics, challengerMetrics);
+        // Update tracking for next iteration
+        currentChampionId = challengerVersion.id;
+        currentBestParams = { ...mutatedParams };
+        currentBestMetrics = { ...challengerMetrics };
 
-        console.log(`Iteration ${iterNum}: Challenger accepted as new champion`);
+        console.log(`Iteration ${iterNum}: Challenger accepted! Score: ${currentScore.toFixed(3)} → ${challengerScore.toFixed(3)}`);
       } else {
         // Mark challenger as rejected
         await supabase
@@ -323,7 +386,7 @@ serve(async (req) => {
       experiment_group_id,
       iterations_run: results.length,
       successful_iterations: successfulIterations,
-      current_champion_id: championVersion.id,
+      current_champion_id: currentChampionId,
       results,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -348,40 +411,43 @@ function mutateParams(
 ): Record<string, any> {
   const mutated = { ...currentParams };
   
-  // Number of params to mutate based on aggressiveness
-  const numMutations = Math.max(1, Math.floor(schemaParams.length * aggressiveness * 0.5));
-  const shuffled = [...schemaParams].sort(() => Math.random() - 0.5);
+  // Number of params to mutate based on aggressiveness (1-3 typically)
+  const numMutations = Math.max(1, Math.min(3, Math.floor(schemaParams.length * aggressiveness * 0.4)));
+  
+  // Shuffle and pick params to mutate
+  const mutableParams = schemaParams.filter(p => 
+    p.type === 'int' || p.type === 'float' || p.type === 'bool'
+  );
+  const shuffled = [...mutableParams].sort(() => Math.random() - 0.5);
 
   for (let i = 0; i < Math.min(numMutations, shuffled.length); i++) {
     const param = shuffled[i];
     const key = param.key;
     const current = currentParams[key] ?? param.default;
 
-    if (param.type === 'int' || param.type === 'float') {
+    if (param.type === 'int') {
+      const range = param.max - param.min;
       const step = param.step || 1;
-      const range = (param.max - param.min);
-      
-      // Delta based on aggressiveness
-      let delta = (Math.random() - 0.5) * range * aggressiveness * 0.3;
-      
+      // Smaller, more controlled mutations
+      const maxSteps = Math.ceil(range * aggressiveness * 0.2 / step);
+      const stepChange = Math.floor(Math.random() * (maxSteps * 2 + 1)) - maxSteps;
+      let newVal = current + stepChange * step;
+      newVal = Math.max(param.min, Math.min(param.max, newVal));
+      mutated[key] = Math.round(newVal);
+    } else if (param.type === 'float') {
+      const range = param.max - param.min;
+      const step = param.step || 0.01;
+      // Smaller percentage-based mutations
+      const delta = (Math.random() - 0.5) * range * aggressiveness * 0.25;
       let newVal = current + delta;
       newVal = Math.max(param.min, Math.min(param.max, newVal));
-
-      if (param.type === 'int') {
-        newVal = Math.round(newVal);
-      } else {
-        newVal = Math.round(newVal / step) * step;
-      }
-
-      mutated[key] = newVal;
+      // Round to step
+      newVal = Math.round(newVal / step) * step;
+      mutated[key] = Number(newVal.toFixed(4));
     } else if (param.type === 'bool') {
-      if (Math.random() < aggressiveness * 0.3) {
+      // Low probability of flipping booleans
+      if (Math.random() < aggressiveness * 0.15) {
         mutated[key] = !current;
-      }
-    } else if (param.type === 'enum' && param.values) {
-      if (Math.random() < aggressiveness * 0.3) {
-        const idx = Math.floor(Math.random() * param.values.length);
-        mutated[key] = param.values[idx];
       }
     }
   }
@@ -416,15 +482,15 @@ async function getVersionBestMetrics(supabase: any, versionId: string) {
     if (pf > bestPf) bestPf = pf;
     if (pnl > bestPnl) bestPnl = pnl;
     if (wr > bestWinRate) bestWinRate = wr;
-    if (dd < minDd) minDd = dd;
-    tradesCount += tc;
+    if (dd < minDd && dd > 0) minDd = dd;
+    if (tc > tradesCount) tradesCount = tc;
   }
 
   return {
     profit_factor: bestPf,
     net_pnl_usd: bestPnl === -Infinity ? 0 : bestPnl,
     win_rate: bestWinRate,
-    max_drawdown: minDd,
+    max_drawdown: minDd === 1 ? 0 : minDd,
     trades_count: tradesCount,
   };
 }
@@ -433,12 +499,9 @@ async function getVersionBestMetrics(supabase: any, versionId: string) {
 function evaluateGates(
   championMetrics: any,
   challengerMetrics: any,
-  objectiveConfig: Record<string, number>
+  objectiveConfig: Record<string, number>,
+  gateConfig: { min_trades: number; max_dd: number; min_improvement: number }
 ): Record<string, { required: number; actual: number; passed: boolean }> {
-  const minTrades = 5;
-  const maxDd = 0.20;
-  const minImprovement = 0.01;
-
   // Calculate scores
   const championScore = calculateScore(championMetrics, objectiveConfig);
   const challengerScore = calculateScore(challengerMetrics, objectiveConfig);
@@ -446,21 +509,25 @@ function evaluateGates(
     ? (challengerScore - championScore) / championScore 
     : challengerScore > 0 ? 1 : 0;
 
+  // Use dynamic max_dd based on champion's drawdown with some tolerance
+  const championDd = championMetrics.max_drawdown || 0.5;
+  const dynamicMaxDd = Math.max(gateConfig.max_dd, championDd * 1.25); // Allow 25% more DD than champion
+
   return {
     min_trades: {
-      required: minTrades,
+      required: gateConfig.min_trades,
       actual: challengerMetrics.trades_count,
-      passed: challengerMetrics.trades_count >= minTrades,
+      passed: challengerMetrics.trades_count >= gateConfig.min_trades,
     },
     max_dd: {
-      required: maxDd,
+      required: Number(dynamicMaxDd.toFixed(2)),
       actual: challengerMetrics.max_drawdown,
-      passed: challengerMetrics.max_drawdown <= maxDd,
+      passed: challengerMetrics.max_drawdown <= dynamicMaxDd,
     },
     improvement: {
-      required: minImprovement,
-      actual: improvement,
-      passed: improvement >= minImprovement || challengerScore > championScore,
+      required: gateConfig.min_improvement,
+      actual: Number(improvement.toFixed(4)),
+      passed: improvement >= gateConfig.min_improvement,
     },
   };
 }
@@ -469,11 +536,14 @@ function calculateScore(metrics: any, config: Record<string, number>): number {
   const pf = Math.min(metrics.profit_factor || 0, 5);
   const ret = (metrics.net_pnl_usd || 0) / 1000;
   const dd = metrics.max_drawdown || 0;
+  const wr = metrics.win_rate || 0;
 
+  // Weighted score calculation
   return (
-    (config.pf_weight || 0.35) * (pf / 5) +
-    (config.return_weight || 0.25) * Math.min(ret, 1) -
-    (config.dd_penalty || 0.15) * Math.min(dd * 5, 1)
+    (config.pf_weight || 0.35) * (pf / 3) + // Normalize PF to ~0-1.67 range
+    (config.return_weight || 0.25) * Math.min(Math.max(ret, -1), 2) + // Clamp return contribution
+    (config.sharpe_weight || 0.25) * wr - // Use win rate as proxy for risk-adjusted
+    (config.dd_penalty || 0.15) * Math.min(dd * 2, 1) // Penalize drawdown
   );
 }
 
@@ -521,19 +591,12 @@ async function runBacktestForVersion(
   }
 }
 
-// Simulated backtest when no dataset
-async function runSimulatedBacktest(supabase: any, versionId: string): Promise<any> {
-  // Get version params
-  const { data: version } = await supabase
-    .from('bot_versions')
-    .select('*')
-    .eq('id', versionId)
-    .single();
-
-  if (!version) return null;
-
-  const params = JSON.parse(version.params_json || '{}');
-  
+// Simulated backtest when no dataset - uses params to influence realistic results
+async function runSimulatedBacktest(
+  supabase: any, 
+  versionId: string,
+  params: Record<string, any>
+): Promise<any> {
   // Create run
   const { data: run } = await supabase
     .from('runs')
@@ -547,35 +610,60 @@ async function runSimulatedBacktest(supabase: any, versionId: string): Promise<a
 
   if (!run) return null;
 
-  // Generate simulated trades based on params
-  const numTrades = Math.floor(Math.random() * 30) + 10;
-  const trades = [];
-  const baseTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
-
-  // Use params to influence results
+  // Generate trades influenced by params
   const lookback = params.lookback_bars || 40;
   const stopMult = params.stop_atr_mult || 1.5;
-  const winBias = 0.5 + (1 / stopMult) * 0.1; // Higher stop = less wins but bigger
+  const tpMult = params.takeprofit_atr_mult || 2.5;
+  const atrPeriod = params.atr_period || 14;
+  
+  // Simulate trade count based on params (lower lookback = more signals)
+  const baseTradeCount = 25;
+  const tradeCountMod = 1 + (40 - lookback) / 100; // More trades with shorter lookback
+  const numTrades = Math.max(8, Math.floor(baseTradeCount * tradeCountMod + (Math.random() - 0.5) * 10));
+  
+  // Win rate influenced by risk/reward ratio
+  const rrRatio = tpMult / stopMult;
+  const baseWinRate = 0.45 + Math.random() * 0.15;
+  const adjustedWinRate = Math.min(0.75, Math.max(0.35, baseWinRate + (1 / rrRatio) * 0.1));
+
+  const trades = [];
+  const baseTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  let equity = 0;
+  let peak = 0;
+  let maxDd = 0;
 
   for (let i = 0; i < numTrades; i++) {
-    const isWin = Math.random() < winBias;
-    const pnlMagnitude = Math.random() * 3 + 0.5;
-    const pnlPoints = isWin ? pnlMagnitude : -pnlMagnitude * 0.8;
+    const isWin = Math.random() < adjustedWinRate;
+    
+    // Win/loss magnitude influenced by ATR multipliers
+    const winMagnitude = tpMult * (0.8 + Math.random() * 0.4);
+    const lossMagnitude = stopMult * (0.8 + Math.random() * 0.4);
+    
+    const pnlMultiplier = isWin ? winMagnitude : -lossMagnitude;
+    const pnlUsd = pnlMultiplier * 50 * (0.8 + Math.random() * 0.4); // ~$50 per ATR unit
     
     trades.push({
       run_id: run.id,
       ts_entry: new Date(baseTime + i * 4 * 60 * 60 * 1000).toISOString(),
       ts_exit: new Date(baseTime + i * 4 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000).toISOString(),
       side: Math.random() > 0.5 ? 'long' : 'short',
-      entry_price: 450,
-      exit_price: 450 + pnlPoints,
+      entry_price: 500,
+      exit_price: 500 + pnlMultiplier,
       qty: 100,
-      pnl_usd: pnlPoints * 100,
-      pnl_points: pnlPoints,
-      fees: 1,
+      pnl_usd: pnlUsd,
+      pnl_points: pnlMultiplier,
+      fees: 2,
       slippage: 0.5,
       reason_code: isWin ? 'take_profit' : 'stop_loss',
     });
+
+    // Track drawdown
+    equity += pnlUsd;
+    if (equity > peak) peak = equity;
+    if (peak > 0) {
+      const dd = (peak - equity) / peak;
+      if (dd > maxDd) maxDd = dd;
+    }
   }
 
   if (trades.length > 0) {
@@ -591,24 +679,15 @@ async function runSimulatedBacktest(supabase: any, versionId: string): Promise<a
   const pf = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 10 : 0;
   const winRate = trades.length > 0 ? wins.length / trades.length : 0;
 
-  // Drawdown
-  let peak = 0, maxDd = 0, equity = 0;
-  for (const t of trades) {
-    equity += t.pnl_usd;
-    if (equity > peak) peak = equity;
-    const dd = peak > 0 ? (peak - equity) / peak : 0;
-    if (dd > maxDd) maxDd = dd;
-  }
-
   await supabase.from('run_metrics').insert({
     run_id: run.id,
-    profit_factor: pf,
-    net_pnl_usd: netPnl,
-    win_rate: winRate,
-    max_drawdown: maxDd,
+    profit_factor: Number(pf.toFixed(4)),
+    net_pnl_usd: Number(netPnl.toFixed(2)),
+    win_rate: Number(winRate.toFixed(4)),
+    max_drawdown: Number(maxDd.toFixed(4)),
     trades_count: trades.length,
-    gross_profit: grossProfit,
-    gross_loss: grossLoss,
+    gross_profit: Number(grossProfit.toFixed(2)),
+    gross_loss: Number(grossLoss.toFixed(2)),
   });
 
   await supabase
