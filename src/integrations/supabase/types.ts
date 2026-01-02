@@ -606,6 +606,8 @@ export type Database = {
         Row: {
           bot_id: string
           bot_version_id: string
+          breakout_high: number | null
+          breakout_low: number | null
           config_json: Json | null
           created_at: string
           current_position: Json | null
@@ -615,6 +617,9 @@ export type Database = {
           halt_reason: string | null
           halted: boolean | null
           id: string
+          last_bar_price: number | null
+          last_bar_time: string | null
+          last_runner_log: Json | null
           last_signal_at: string | null
           last_signal_type: string | null
           pass_criteria: Json
@@ -629,6 +634,8 @@ export type Database = {
         Insert: {
           bot_id: string
           bot_version_id: string
+          breakout_high?: number | null
+          breakout_low?: number | null
           config_json?: Json | null
           created_at?: string
           current_position?: Json | null
@@ -638,6 +645,9 @@ export type Database = {
           halt_reason?: string | null
           halted?: boolean | null
           id?: string
+          last_bar_price?: number | null
+          last_bar_time?: string | null
+          last_runner_log?: Json | null
           last_signal_at?: string | null
           last_signal_type?: string | null
           pass_criteria?: Json
@@ -652,6 +662,8 @@ export type Database = {
         Update: {
           bot_id?: string
           bot_version_id?: string
+          breakout_high?: number | null
+          breakout_low?: number | null
           config_json?: Json | null
           created_at?: string
           current_position?: Json | null
@@ -661,6 +673,9 @@ export type Database = {
           halt_reason?: string | null
           halted?: boolean | null
           id?: string
+          last_bar_price?: number | null
+          last_bar_time?: string | null
+          last_runner_log?: Json | null
           last_signal_at?: string | null
           last_signal_type?: string | null
           pass_criteria?: Json
@@ -823,6 +838,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "paper_positions_snapshots_deployment_id_fkey"
+            columns: ["deployment_id"]
+            isOneToOne: false
+            referencedRelation: "paper_deployments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paper_runner_logs: {
+        Row: {
+          created_at: string
+          data_json: Json | null
+          deployment_id: string
+          id: string
+          log_type: string
+          message: string
+          ts: string
+        }
+        Insert: {
+          created_at?: string
+          data_json?: Json | null
+          deployment_id: string
+          id?: string
+          log_type: string
+          message: string
+          ts?: string
+        }
+        Update: {
+          created_at?: string
+          data_json?: Json | null
+          deployment_id?: string
+          id?: string
+          log_type?: string
+          message?: string
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paper_runner_logs_deployment_id_fkey"
             columns: ["deployment_id"]
             isOneToOne: false
             referencedRelation: "paper_deployments"

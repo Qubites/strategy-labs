@@ -8,6 +8,7 @@ const corsHeaders = {
 
 interface PaperRunnerRequest {
   deployment_id?: string;
+  force_trade?: 'long' | 'short'; // Force a test trade
 }
 
 interface Bar {
@@ -54,6 +55,7 @@ serve(async (req) => {
     }
 
     const deployment_id = requestBody?.deployment_id;
+    const force_trade = requestBody?.force_trade;
 
     // If no deployment_id, run for ALL running deployments
     if (!deployment_id) {
@@ -82,7 +84,7 @@ serve(async (req) => {
       const results = [];
       for (const dep of runningDeployments) {
         try {
-          const result = await processDeployment(supabase, dep.id, ALPACA_API_KEY, ALPACA_SECRET_KEY);
+          const result = await processDeployment(supabase, dep.id, ALPACA_API_KEY, ALPACA_SECRET_KEY, null);
           results.push({ deployment_id: dep.id, ...result });
         } catch (err) {
           console.error(`[paper-runner] Error processing ${dep.id}:`, err);
@@ -100,8 +102,8 @@ serve(async (req) => {
     }
 
     // Single deployment mode
-    console.log(`[paper-runner] Starting execution for deployment: ${deployment_id}`);
-    const result = await processDeployment(supabase, deployment_id, ALPACA_API_KEY, ALPACA_SECRET_KEY);
+    console.log(`[paper-runner] Starting execution for deployment: ${deployment_id}, force_trade: ${force_trade || 'none'}`);
+    const result = await processDeployment(supabase, deployment_id, ALPACA_API_KEY, ALPACA_SECRET_KEY, force_trade || null);
     
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -117,12 +119,34 @@ serve(async (req) => {
   }
 });
 
+// Helper to log to both console and database
+async function logToDb(
+  supabase: any, 
+  deployment_id: string, 
+  log_type: string, 
+  message: string, 
+  data?: any
+) {
+  console.log(`[paper-runner][${log_type}] ${message}`, data ? JSON.stringify(data) : '');
+  try {
+    await supabase.from('paper_runner_logs').insert({
+      deployment_id,
+      log_type,
+      message,
+      data_json: data || null
+    });
+  } catch (e) {
+    console.error('[paper-runner] Failed to write log to DB:', e);
+  }
+}
+
 // Process a single deployment
 async function processDeployment(
   supabase: any, 
   deployment_id: string, 
   ALPACA_API_KEY: string, 
-  ALPACA_SECRET_KEY: string
+  ALPACA_SECRET_KEY: string,
+  force_trade: 'long' | 'short' | null
 ): Promise<any> {
   // Fetch deployment with bot version and strategy template
   const { data: deployment, error: deployError } = await supabase
@@ -164,8 +188,22 @@ async function processDeployment(
   const isMarketOpen = dayOfWeek >= 1 && dayOfWeek <= 5 && 
     ((hour === 9 && minute >= 30) || (hour >= 10 && hour < 16));
 
-  if (!isMarketOpen) {
-    console.log(`[paper-runner] Market closed. ET time: ${hour}:${minute}, day: ${dayOfWeek}`);
+  // Always log the run attempt even if market is closed
+  await logToDb(supabase, deployment_id, 'market', 
+    `Market check: ET ${hour}:${minute.toString().padStart(2, '0')}, day=${dayOfWeek}, open=${isMarketOpen}`,
+    { hour, minute, dayOfWeek, isMarketOpen, force_trade }
+  );
+
+  // If market closed and not forcing a trade, exit early but still record status
+  if (!isMarketOpen && !force_trade) {
+    await supabase.from('paper_deployments').update({
+      last_runner_log: {
+        ts: new Date().toISOString(),
+        message: `Market closed (ET ${hour}:${minute.toString().padStart(2, '0')})`,
+        market_open: false
+      }
+    }).eq('id', deployment_id);
+
     return { 
       success: true, 
       message: 'Market closed',
@@ -194,7 +232,10 @@ async function processDeployment(
     console.error('[paper-runner] Error parsing params:', e);
   }
 
-  console.log(`[paper-runner] Template: ${templateId}, Params:`, JSON.stringify(params));
+  await logToDb(supabase, deployment_id, 'signal', 
+    `Strategy: ${templateId}`,
+    { params, riskLimits }
+  );
 
   // Get current position from deployment state
   let currentPosition: Position | null = deployment.current_position as Position | null;
@@ -203,7 +244,6 @@ async function processDeployment(
 
   // Fetch recent bars from Alpaca (last 100 bars, 5-minute timeframe)
   const barsUrl = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=5Min&limit=100`;
-  console.log(`[paper-runner] Fetching bars from: ${barsUrl}`);
   
   const barsResponse = await fetch(barsUrl, {
     headers: {
@@ -214,6 +254,7 @@ async function processDeployment(
 
   if (!barsResponse.ok) {
     const errorText = await barsResponse.text();
+    await logToDb(supabase, deployment_id, 'error', `Failed to fetch bars: ${barsResponse.status}`, { error: errorText });
     throw new Error(`Failed to fetch bars: ${barsResponse.status} - ${errorText}`);
   }
 
@@ -221,7 +262,7 @@ async function processDeployment(
   const bars: Bar[] = barsData.bars || [];
 
   if (bars.length < 20) {
-    console.log(`[paper-runner] Not enough bars: ${bars.length}`);
+    await logToDb(supabase, deployment_id, 'market', `Not enough bars: ${bars.length}`, { bars_count: bars.length });
     return { 
       success: true, 
       message: 'Not enough data',
@@ -229,7 +270,20 @@ async function processDeployment(
     };
   }
 
-  console.log(`[paper-runner] Fetched ${bars.length} bars, latest: ${bars[bars.length - 1]?.t}`);
+  const latestBar = bars[bars.length - 1];
+  await logToDb(supabase, deployment_id, 'market', 
+    `Latest bar: ${symbol} @ $${latestBar.c.toFixed(2)} (${latestBar.t})`,
+    { 
+      symbol,
+      price: latestBar.c,
+      time: latestBar.t,
+      open: latestBar.o,
+      high: latestBar.h,
+      low: latestBar.l,
+      volume: latestBar.v,
+      bars_count: bars.length
+    }
+  );
 
   // Calculate ATR for stops
   const atrPeriod = params.atr_period || 14;
@@ -237,7 +291,6 @@ async function processDeployment(
   const takeProfitAtrMult = params.takeprofit_atr_mult || 2.5;
   
   const atr = calculateATR(bars, atrPeriod);
-  console.log(`[paper-runner] ATR(${atrPeriod}): ${atr.toFixed(4)}`);
 
   // Get account info for position sizing
   const accountResponse = await fetch('https://paper-api.alpaca.markets/v2/account', {
@@ -255,15 +308,18 @@ async function processDeployment(
   const equity = parseFloat(account.equity);
   const buyingPower = parseFloat(account.buying_power);
   
-  console.log(`[paper-runner] Account equity: $${equity.toFixed(2)}, buying power: $${buyingPower.toFixed(2)}`);
+  await logToDb(supabase, deployment_id, 'market', 
+    `Account: equity=$${equity.toFixed(2)}, buying_power=$${buyingPower.toFixed(2)}`,
+    { equity, buyingPower, cash: account.cash }
+  );
 
   // Check daily loss limit
   const startingEquity = deployment.config_json?.starting_equity || 100000;
   const dailyPnl = equity - startingEquity;
   const maxDailyLoss = riskLimits.max_daily_loss_usd || 500;
 
-  if (dailyPnl < -maxDailyLoss) {
-    console.log(`[paper-runner] Daily loss limit hit: $${dailyPnl.toFixed(2)}`);
+  if (dailyPnl < -maxDailyLoss && !force_trade) {
+    await logToDb(supabase, deployment_id, 'signal', `Daily loss limit hit: $${dailyPnl.toFixed(2)}`, { dailyPnl, maxDailyLoss });
     await supabase.from('paper_deployments').update({
       halted: true,
       halt_reason: `Daily loss limit hit: $${dailyPnl.toFixed(2)}`
@@ -278,16 +334,42 @@ async function processDeployment(
   }
 
   // Generate signal based on strategy template
-  const latestBar = bars[bars.length - 1];
-  const signal = generateSignal(templateId, bars, params, currentPosition);
+  const signal = force_trade 
+    ? { type: force_trade === 'long' ? 'entry_long' : 'entry_short', reason: 'FORCED_TEST_TRADE' }
+    : generateSignal(templateId, bars, params, currentPosition);
   
-  console.log(`[paper-runner] Signal: ${signal.type}, reason: ${signal.reason}`);
+  // Calculate breakout levels for logging
+  const lookback = params.lookback_bars || params.lookback_period || 20;
+  const breakoutPct = params.breakout_pct || 0.002;
+  const recentBars = bars.slice(-lookback - 1, -1);
+  const recentHigh = Math.max(...recentBars.map(b => b.h));
+  const recentLow = Math.min(...recentBars.map(b => b.l));
+  const upperBreakout = recentHigh * (1 + breakoutPct);
+  const lowerBreakout = recentLow * (1 - breakoutPct);
+
+  await logToDb(supabase, deployment_id, 'signal', 
+    `Signal: ${signal.type} (${signal.reason})`,
+    {
+      signal_type: signal.type,
+      signal_reason: signal.reason,
+      current_price: latestBar.c,
+      lookback_high: recentHigh,
+      lookback_low: recentLow,
+      upper_breakout_level: upperBreakout,
+      lower_breakout_level: lowerBreakout,
+      breakout_pct: breakoutPct,
+      atr,
+      current_position: currentPosition,
+      price_vs_upper: `${latestBar.c.toFixed(2)} vs ${upperBreakout.toFixed(2)} (${((latestBar.c / upperBreakout - 1) * 100).toFixed(3)}%)`,
+      price_vs_lower: `${latestBar.c.toFixed(2)} vs ${lowerBreakout.toFixed(2)} (${((1 - latestBar.c / lowerBreakout) * 100).toFixed(3)}%)`
+    }
+  );
 
   let orderPlaced = false;
   let orderDetails: any = null;
 
   // Execute trades based on signal
-  if (signal.type === 'entry_long' && !currentPosition) {
+  if ((signal.type === 'entry_long') && !currentPosition) {
     // Calculate position size
     const maxPositionSize = riskLimits.max_position_size_usd || 10000;
     const riskPerTrade = Math.min(maxPositionSize, buyingPower * 0.9);
@@ -296,6 +378,11 @@ async function processDeployment(
     if (qty > 0) {
       const stopLoss = latestBar.c - (atr * stopAtrMult);
       const takeProfit = latestBar.c + (atr * takeProfitAtrMult);
+
+      await logToDb(supabase, deployment_id, 'order', 
+        `Placing LONG order: ${qty} shares @ ~$${latestBar.c.toFixed(2)}`,
+        { qty, price: latestBar.c, stopLoss, takeProfit, riskPerTrade, maxPositionSize }
+      );
 
       // Place market order via Alpaca
       const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
@@ -318,12 +405,18 @@ async function processDeployment(
         };
         orderPlaced = true;
         orderDetails = orderResult.order;
-        console.log(`[paper-runner] Opened LONG position: ${qty} shares @ ~$${latestBar.c.toFixed(2)}`);
+        await logToDb(supabase, deployment_id, 'order', 
+          `✓ LONG order placed: ${qty} shares, order_id=${orderResult.order?.id}`,
+          { order: orderResult.order }
+        );
       } else {
-        console.error(`[paper-runner] Order failed:`, orderResult.error);
+        await logToDb(supabase, deployment_id, 'error', 
+          `✗ LONG order failed: ${orderResult.error}`,
+          { error: orderResult.error }
+        );
       }
     }
-  } else if (signal.type === 'entry_short' && !currentPosition) {
+  } else if ((signal.type === 'entry_short') && !currentPosition) {
     // Calculate position size
     const maxPositionSize = riskLimits.max_position_size_usd || 10000;
     const riskPerTrade = Math.min(maxPositionSize, buyingPower * 0.9);
@@ -332,6 +425,11 @@ async function processDeployment(
     if (qty > 0) {
       const stopLoss = latestBar.c + (atr * stopAtrMult);
       const takeProfit = latestBar.c - (atr * takeProfitAtrMult);
+
+      await logToDb(supabase, deployment_id, 'order', 
+        `Placing SHORT order: ${qty} shares @ ~$${latestBar.c.toFixed(2)}`,
+        { qty, price: latestBar.c, stopLoss, takeProfit }
+      );
 
       const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
         symbol,
@@ -353,15 +451,26 @@ async function processDeployment(
         };
         orderPlaced = true;
         orderDetails = orderResult.order;
-        console.log(`[paper-runner] Opened SHORT position: ${qty} shares @ ~$${latestBar.c.toFixed(2)}`);
+        await logToDb(supabase, deployment_id, 'order', 
+          `✓ SHORT order placed: ${qty} shares, order_id=${orderResult.order?.id}`,
+          { order: orderResult.order }
+        );
       } else {
-        console.error(`[paper-runner] Order failed:`, orderResult.error);
+        await logToDb(supabase, deployment_id, 'error', 
+          `✗ SHORT order failed: ${orderResult.error}`,
+          { error: orderResult.error }
+        );
       }
     }
   } else if (signal.type === 'exit' && currentPosition) {
     // Close position
     const closeSide = currentPosition.side === 'long' ? 'sell' : 'buy';
     
+    await logToDb(supabase, deployment_id, 'order', 
+      `Closing ${currentPosition.side.toUpperCase()} position: ${currentPosition.qty} shares`,
+      { position: currentPosition, reason: signal.reason }
+    );
+
     const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
       symbol: currentPosition.symbol,
       qty: currentPosition.qty,
@@ -375,7 +484,10 @@ async function processDeployment(
         ? (latestBar.c - currentPosition.entry_price) * currentPosition.qty
         : (currentPosition.entry_price - latestBar.c) * currentPosition.qty;
       
-      console.log(`[paper-runner] Closed ${currentPosition.side.toUpperCase()} position, P&L: $${pnl.toFixed(2)}, reason: ${signal.reason}`);
+      await logToDb(supabase, deployment_id, 'order', 
+        `✓ Closed ${currentPosition.side.toUpperCase()} position, P&L: $${pnl.toFixed(2)}`,
+        { pnl, order: orderResult.order, reason: signal.reason }
+      );
       currentPosition = null;
       orderPlaced = true;
       orderDetails = orderResult.order;
@@ -386,6 +498,10 @@ async function processDeployment(
     
     if (currentPosition.side === 'long') {
       if (price <= currentPosition.stop_loss) {
+        await logToDb(supabase, deployment_id, 'order', 
+          `STOP LOSS triggered for LONG @ $${price.toFixed(2)} (SL: $${currentPosition.stop_loss.toFixed(2)})`,
+          { price, stop_loss: currentPosition.stop_loss }
+        );
         const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
           symbol: currentPosition.symbol,
           qty: currentPosition.qty,
@@ -394,12 +510,15 @@ async function processDeployment(
           time_in_force: 'day'
         });
         if (orderResult.success) {
-          console.log(`[paper-runner] STOP LOSS hit for LONG @ $${price.toFixed(2)}`);
           currentPosition = null;
           orderPlaced = true;
           orderDetails = orderResult.order;
         }
       } else if (price >= currentPosition.take_profit) {
+        await logToDb(supabase, deployment_id, 'order', 
+          `TAKE PROFIT triggered for LONG @ $${price.toFixed(2)} (TP: $${currentPosition.take_profit.toFixed(2)})`,
+          { price, take_profit: currentPosition.take_profit }
+        );
         const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
           symbol: currentPosition.symbol,
           qty: currentPosition.qty,
@@ -408,7 +527,6 @@ async function processDeployment(
           time_in_force: 'day'
         });
         if (orderResult.success) {
-          console.log(`[paper-runner] TAKE PROFIT hit for LONG @ $${price.toFixed(2)}`);
           currentPosition = null;
           orderPlaced = true;
           orderDetails = orderResult.order;
@@ -416,6 +534,10 @@ async function processDeployment(
       }
     } else if (currentPosition.side === 'short') {
       if (price >= currentPosition.stop_loss) {
+        await logToDb(supabase, deployment_id, 'order', 
+          `STOP LOSS triggered for SHORT @ $${price.toFixed(2)} (SL: $${currentPosition.stop_loss.toFixed(2)})`,
+          { price, stop_loss: currentPosition.stop_loss }
+        );
         const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
           symbol: currentPosition.symbol,
           qty: currentPosition.qty,
@@ -424,12 +546,15 @@ async function processDeployment(
           time_in_force: 'day'
         });
         if (orderResult.success) {
-          console.log(`[paper-runner] STOP LOSS hit for SHORT @ $${price.toFixed(2)}`);
           currentPosition = null;
           orderPlaced = true;
           orderDetails = orderResult.order;
         }
       } else if (price <= currentPosition.take_profit) {
+        await logToDb(supabase, deployment_id, 'order', 
+          `TAKE PROFIT triggered for SHORT @ $${price.toFixed(2)} (TP: $${currentPosition.take_profit.toFixed(2)})`,
+          { price, take_profit: currentPosition.take_profit }
+        );
         const orderResult = await placeOrder(ALPACA_API_KEY, ALPACA_SECRET_KEY, {
           symbol: currentPosition.symbol,
           qty: currentPosition.qty,
@@ -438,7 +563,6 @@ async function processDeployment(
           time_in_force: 'day'
         });
         if (orderResult.success) {
-          console.log(`[paper-runner] TAKE PROFIT hit for SHORT @ $${price.toFixed(2)}`);
           currentPosition = null;
           orderPlaced = true;
           orderDetails = orderResult.order;
@@ -447,16 +571,30 @@ async function processDeployment(
     }
   }
 
-  // Update deployment state
+  // Update deployment state with detailed status
   await supabase.from('paper_deployments').update({
     current_position: currentPosition,
     last_signal_at: new Date().toISOString(),
     last_signal_type: signal.type,
     daily_pnl: dailyPnl,
-    daily_trades: orderPlaced ? (deployment.daily_trades || 0) + 1 : (deployment.daily_trades || 0)
+    daily_trades: orderPlaced ? (deployment.daily_trades || 0) + 1 : (deployment.daily_trades || 0),
+    last_bar_price: latestBar.c,
+    last_bar_time: latestBar.t,
+    breakout_high: upperBreakout,
+    breakout_low: lowerBreakout,
+    last_runner_log: {
+      ts: new Date().toISOString(),
+      message: `${signal.type}: ${signal.reason}`,
+      price: latestBar.c,
+      upper_breakout: upperBreakout,
+      lower_breakout: lowerBreakout,
+      atr,
+      market_open: isMarketOpen,
+      order_placed: orderPlaced
+    }
   }).eq('id', deployment_id);
 
-  // Store position snapshot
+  // Store position snapshot - ALWAYS record even without trades
   await supabase.from('paper_positions_snapshots').insert({
     deployment_id,
     equity,
@@ -524,6 +662,18 @@ async function processDeployment(
     equity,
     daily_pnl: dailyPnl,
     bars_analyzed: bars.length,
+    latest_bar: {
+      time: latestBar.t,
+      price: latestBar.c,
+      high: latestBar.h,
+      low: latestBar.l
+    },
+    breakout_levels: {
+      upper: upperBreakout,
+      lower: lowerBreakout,
+      lookback_high: recentHigh,
+      lookback_low: recentLow
+    },
     atr,
     market_open: isMarketOpen
   };
@@ -577,11 +727,15 @@ function generateSignal(
     
     if (!currentPosition) {
       if (price > upperBreakout && (tradeDirection === 'both' || tradeDirection === 'long')) {
-        return { type: 'entry_long', reason: `breakout_above_${recentHigh.toFixed(2)}` };
+        return { type: 'entry_long', reason: `breakout_above_${recentHigh.toFixed(2)}_at_${price.toFixed(2)}` };
       }
       if (price < lowerBreakout && (tradeDirection === 'both' || tradeDirection === 'short')) {
-        return { type: 'entry_short', reason: `breakout_below_${recentLow.toFixed(2)}` };
+        return { type: 'entry_short', reason: `breakout_below_${recentLow.toFixed(2)}_at_${price.toFixed(2)}` };
       }
+      // More detailed hold reason
+      const distToUpper = ((upperBreakout - price) / price * 100).toFixed(3);
+      const distToLower = ((price - lowerBreakout) / price * 100).toFixed(3);
+      return { type: 'hold', reason: `no_breakout_${distToUpper}%_to_upper_${distToLower}%_to_lower` };
     } else {
       // Exit on reversal
       if (currentPosition.side === 'long' && price < recentLow) {
@@ -592,7 +746,7 @@ function generateSignal(
       }
     }
     
-    return { type: 'hold', reason: 'no_breakout' };
+    return { type: 'hold', reason: `in_position_${currentPosition?.side || 'none'}` };
     
   } else if (templateId === 'mean_reversion_extremes_v1') {
     const rsiPeriod = params.rsi_period || 14;

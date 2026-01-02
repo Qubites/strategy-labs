@@ -20,6 +20,9 @@ import {
   FileText,
   RefreshCw,
   Loader2,
+  Zap,
+  Activity,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   LineChart as RechartsLineChart,
@@ -38,9 +41,11 @@ export default function PaperTrading() {
   const [orders, setOrders] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<any[]>([]);
+  const [runnerLogs, setRunnerLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [forcingTrade, setForcingTrade] = useState<'long' | 'short' | null>(null);
 
   useEffect(() => {
     if (id) loadDeployment();
@@ -84,6 +89,15 @@ export default function PaperTrading() {
         .eq('deployment_id', id)
         .order('date', { ascending: true });
       setDailyMetrics(metricsData || []);
+
+      // Load runner logs
+      const { data: logsData } = await supabase
+        .from('paper_runner_logs')
+        .select('*')
+        .eq('deployment_id', id)
+        .order('ts', { ascending: false })
+        .limit(50);
+      setRunnerLogs(logsData || []);
     } catch (error) {
       console.error('Error loading deployment:', error);
       toast.error('Failed to load paper trading data');
@@ -106,6 +120,28 @@ export default function PaperTrading() {
       toast.error('Failed to sync');
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleForceTrade(side: 'long' | 'short') {
+    if (!confirm(`Are you sure you want to force a TEST ${side.toUpperCase()} trade? This will place a real order in the paper account.`)) return;
+    setForcingTrade(side);
+    try {
+      const { data, error } = await supabase.functions.invoke('paper-runner', {
+        body: { deployment_id: id, force_trade: side },
+      });
+      if (error) throw error;
+      if (data?.order_placed) {
+        toast.success(`Test ${side} trade placed successfully!`);
+      } else {
+        toast.info(`Trade not placed: ${data?.signal_reason || 'unknown reason'}`);
+      }
+      loadDeployment();
+    } catch (error) {
+      console.error('Error forcing trade:', error);
+      toast.error('Failed to force trade');
+    } finally {
+      setForcingTrade(null);
     }
   }
 
@@ -155,6 +191,9 @@ export default function PaperTrading() {
     equity: s.equity,
   }));
 
+  // Parse last runner log for status display
+  const lastLog = deployment?.last_runner_log;
+
   if (loading) {
     return (
       <MainLayout>
@@ -198,6 +237,30 @@ export default function PaperTrading() {
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
           Sync with Alpaca
         </Button>
+        {deployment.status === 'running' && !deployment.current_position && (
+          <>
+            <Button 
+              variant="outline" 
+              onClick={() => handleForceTrade('long')} 
+              disabled={!!forcingTrade}
+              className="gap-2 border-success/50 text-success hover:bg-success/10"
+              title="Force a test LONG trade to verify Alpaca connectivity"
+            >
+              {forcingTrade === 'long' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              Test Long
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => handleForceTrade('short')} 
+              disabled={!!forcingTrade}
+              className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10"
+              title="Force a test SHORT trade to verify Alpaca connectivity"
+            >
+              {forcingTrade === 'short' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              Test Short
+            </Button>
+          </>
+        )}
         {deployment.status === 'running' && (
           <Button variant="destructive" onClick={handleStop} disabled={stopping} className="gap-2">
             {stopping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
@@ -217,9 +280,9 @@ export default function PaperTrading() {
         <div className="p-4 rounded-lg border border-primary/30 bg-primary/5">
           <h4 className="font-medium text-sm mb-1">How Paper Trading Works</h4>
           <p className="text-sm text-muted-foreground">
-            Paper trading runs against Alpaca's paper trading API. Click <strong>"Sync with Alpaca"</strong> to fetch the latest 
-            account positions, orders, and equity from Alpaca. The bot strategy is being executed server-side - 
-            data will update as trades are made. Target duration: {deployment.target_days} trading days.
+            Paper trading runs against Alpaca's paper trading API. The bot executes <strong>automatically every 5 minutes</strong> during 
+            market hours (9:30 AM - 4:00 PM ET). Click <strong>"Sync with Alpaca"</strong> to refresh data. 
+            Use <strong>"Test Long/Short"</strong> buttons to verify Alpaca order placement works.
           </p>
         </div>
 
@@ -227,8 +290,9 @@ export default function PaperTrading() {
         <div className="flex items-center gap-4 flex-wrap">
           <StatusBadge status={deployment.status} />
           {deployment.halted && (
-            <span className="text-destructive font-medium text-sm">
-              ⚠ HALTED: {deployment.halt_reason}
+            <span className="text-destructive font-medium text-sm flex items-center gap-1">
+              <AlertTriangle className="w-4 h-4" />
+              HALTED: {deployment.halt_reason}
             </span>
           )}
           <span className="text-sm text-muted-foreground">
@@ -247,42 +311,109 @@ export default function PaperTrading() {
           )}
         </div>
 
-        {/* Live Trading Status */}
+        {/* Live Trading Status - Enhanced with real-time data */}
         {deployment.status === 'running' && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-lg border border-border bg-muted/30">
-            <div>
-              <span className="text-xs text-muted-foreground">Last Signal</span>
-              <p className="font-mono text-sm">
-                {deployment.last_signal_type || 'none'} 
-                {deployment.last_signal_at && (
-                  <span className="text-muted-foreground ml-1">
-                    @ {format(new Date(deployment.last_signal_at), 'HH:mm')}
+          <div className="p-4 rounded-lg border border-border bg-muted/30 space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-primary" />
+              <span className="font-medium text-sm">Live Strategy Status</span>
+              {lastLog?.ts && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  Last update: {format(new Date(lastLog.ts), 'HH:mm:ss')}
+                </span>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <span className="text-xs text-muted-foreground">Last Signal</span>
+                <p className="font-mono text-sm">
+                  <span className={
+                    deployment.last_signal_type === 'entry_long' ? 'text-success' :
+                    deployment.last_signal_type === 'entry_short' ? 'text-destructive' :
+                    'text-muted-foreground'
+                  }>
+                    {deployment.last_signal_type || 'none'}
                   </span>
-                )}
-              </p>
+                  {deployment.last_signal_at && (
+                    <span className="text-muted-foreground ml-1">
+                      @ {format(new Date(deployment.last_signal_at), 'HH:mm')}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Current Position</span>
+                <p className="font-mono text-sm">
+                  {deployment.current_position ? (
+                    <span className={deployment.current_position.side === 'long' ? 'text-success' : 'text-destructive'}>
+                      {deployment.current_position.side.toUpperCase()} {deployment.current_position.qty} @ ${deployment.current_position.entry_price?.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Flat</span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Daily P&L</span>
+                <p className={`font-mono text-sm ${(deployment.daily_pnl || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  ${(deployment.daily_pnl || 0).toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Today's Trades</span>
+                <p className="font-mono text-sm">{deployment.daily_trades || 0}</p>
+              </div>
             </div>
-            <div>
-              <span className="text-xs text-muted-foreground">Current Position</span>
-              <p className="font-mono text-sm">
-                {deployment.current_position ? (
-                  <span className={deployment.current_position.side === 'long' ? 'text-success' : 'text-destructive'}>
-                    {deployment.current_position.side.toUpperCase()} {deployment.current_position.qty} @ ${deployment.current_position.entry_price?.toFixed(2)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">Flat</span>
-                )}
-              </p>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground">Daily P&L</span>
-              <p className={`font-mono text-sm ${(deployment.daily_pnl || 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
-                ${(deployment.daily_pnl || 0).toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground">Today's Trades</span>
-              <p className="font-mono text-sm">{deployment.daily_trades || 0}</p>
-            </div>
+
+            {/* Breakout Levels - Real-time strategy data */}
+            {(deployment.last_bar_price || deployment.breakout_high) && (
+              <div className="pt-3 border-t border-border/50">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <span className="text-xs text-muted-foreground">Latest Bar Price</span>
+                    <p className="font-mono text-sm">
+                      ${deployment.last_bar_price?.toFixed(2) || '—'}
+                      {deployment.last_bar_time && (
+                        <span className="text-muted-foreground ml-1 text-xs">
+                          ({format(new Date(deployment.last_bar_time), 'HH:mm')})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Upper Breakout</span>
+                    <p className="font-mono text-sm text-success">
+                      ${deployment.breakout_high?.toFixed(2) || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Lower Breakout</span>
+                    <p className="font-mono text-sm text-destructive">
+                      ${deployment.breakout_low?.toFixed(2) || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Market Status</span>
+                    <p className="font-mono text-sm">
+                      {lastLog?.market_open ? (
+                        <span className="text-success">● Open</span>
+                      ) : (
+                        <span className="text-muted-foreground">● Closed</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Last Signal Reason */}
+            {lastLog?.message && (
+              <div className="pt-3 border-t border-border/50">
+                <span className="text-xs text-muted-foreground">Last Signal Reason</span>
+                <p className="font-mono text-sm text-muted-foreground">{lastLog.message}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -319,6 +450,10 @@ export default function PaperTrading() {
               <LineChart className="w-4 h-4" />
               Equity Curve
             </TabsTrigger>
+            <TabsTrigger value="logs" className="gap-2">
+              <Activity className="w-4 h-4" />
+              Runner Logs ({runnerLogs.length})
+            </TabsTrigger>
             <TabsTrigger value="orders" className="gap-2">
               <FileText className="w-4 h-4" />
               Orders ({orders.length})
@@ -335,14 +470,14 @@ export default function PaperTrading() {
 
           <TabsContent value="equity">
             <div className="terminal-card p-6">
-              <h3 className="font-medium mb-4">Equity Curve</h3>
+              <h3 className="font-medium mb-4">Equity Curve ({snapshots.length} snapshots)</h3>
               {equityData.length > 0 ? (
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <RechartsLineChart data={equityData}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                       <XAxis dataKey="time" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                      <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
+                      <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} domain={['auto', 'auto']} />
                       <Tooltip
                         contentStyle={{
                           backgroundColor: 'hsl(var(--card))',
@@ -362,7 +497,66 @@ export default function PaperTrading() {
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  No equity data yet
+                  No equity data yet. Snapshots are recorded every 5 minutes during market hours.
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="logs">
+            <div className="terminal-card">
+              <div className="p-4 border-b border-border">
+                <h3 className="font-medium">Runner Execution Logs</h3>
+                <p className="text-sm text-muted-foreground">Detailed logs from each paper-runner execution showing market data, signals, and orders.</p>
+              </div>
+              {runnerLogs.length > 0 ? (
+                <div className="max-h-[500px] overflow-y-auto">
+                  <table className="data-table">
+                    <thead className="sticky top-0 bg-card">
+                      <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Message</th>
+                        <th>Data</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runnerLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="font-mono text-xs whitespace-nowrap">
+                            {format(new Date(log.ts), 'MMM d HH:mm:ss')}
+                          </td>
+                          <td>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              log.log_type === 'order' ? 'bg-primary/20 text-primary' :
+                              log.log_type === 'signal' ? 'bg-blue-500/20 text-blue-400' :
+                              log.log_type === 'error' ? 'bg-destructive/20 text-destructive' :
+                              'bg-muted text-muted-foreground'
+                            }`}>
+                              {log.log_type}
+                            </span>
+                          </td>
+                          <td className="font-mono text-sm max-w-md truncate" title={log.message}>
+                            {log.message}
+                          </td>
+                          <td className="text-xs text-muted-foreground max-w-xs">
+                            {log.data_json && (
+                              <details className="cursor-pointer">
+                                <summary className="hover:text-foreground">View data</summary>
+                                <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-40">
+                                  {JSON.stringify(log.data_json, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No runner logs yet. Logs appear when paper-runner executes during market hours.
                 </div>
               )}
             </div>
@@ -407,7 +601,7 @@ export default function PaperTrading() {
                 </table>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  No orders yet
+                  No orders yet. Use "Test Long" or "Test Short" buttons to verify order placement.
                 </div>
               )}
             </div>
@@ -433,11 +627,11 @@ export default function PaperTrading() {
                       <tr key={idx}>
                         <td className="font-mono">{pos.symbol}</td>
                         <td className="font-mono">{pos.qty}</td>
-                        <td className="font-mono">${parseFloat(pos.avg_entry_price).toFixed(2)}</td>
-                        <td className="font-mono">${parseFloat(pos.current_price).toFixed(2)}</td>
-                        <td className="font-mono">${parseFloat(pos.market_value).toFixed(2)}</td>
-                        <td className={parseFloat(pos.unrealized_pl) >= 0 ? 'text-success' : 'text-destructive'}>
-                          ${parseFloat(pos.unrealized_pl).toFixed(2)}
+                        <td className="font-mono">${parseFloat(pos.avg_entry_price || pos.entry_price || 0).toFixed(2)}</td>
+                        <td className="font-mono">${parseFloat(pos.current_price || 0).toFixed(2)}</td>
+                        <td className="font-mono">${parseFloat(pos.market_value || 0).toFixed(2)}</td>
+                        <td className={parseFloat(pos.unrealized_pl || 0) >= 0 ? 'text-success' : 'text-destructive'}>
+                          ${parseFloat(pos.unrealized_pl || 0).toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -471,40 +665,44 @@ export default function PaperTrading() {
                         <td className={metric.pnl >= 0 ? 'text-success' : 'text-destructive'}>
                           ${metric.pnl.toFixed(2)}
                         </td>
-                        <td className="text-destructive">
-                          {(metric.drawdown * 100).toFixed(1)}%
-                        </td>
+                        <td className="text-destructive">{(metric.drawdown * 100).toFixed(2)}%</td>
                         <td>{metric.trades_count}</td>
-                        <td className="font-mono">${metric.equity_end?.toFixed(2) || '—'}</td>
+                        <td className="font-mono">${metric.equity_end.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  No daily metrics yet
+                  No daily metrics yet. Metrics are recorded at the end of each trading day.
                 </div>
               )}
             </div>
           </TabsContent>
         </Tabs>
 
-        {/* Pass Criteria */}
+        {/* Pass criteria */}
         <div className="terminal-card p-6">
           <h3 className="font-medium mb-4">Pass Criteria</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex justify-between py-2 border-b border-border/50">
-              <span className="text-muted-foreground">Max Drawdown</span>
-              <span className="font-mono">{(deployment.pass_criteria?.max_dd * 100).toFixed(0)}%</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border/50">
-              <span className="text-muted-foreground">Max Daily Loss</span>
-              <span className="font-mono">${deployment.pass_criteria?.max_daily_loss}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border/50">
-              <span className="text-muted-foreground">Min Trades</span>
-              <span className="font-mono">{deployment.pass_criteria?.min_trades}</span>
-            </div>
+            {deployment.pass_criteria?.max_dd !== undefined && (
+              <div className="flex justify-between items-center p-3 bg-muted/30 rounded">
+                <span className="text-sm text-muted-foreground">Max Drawdown</span>
+                <span className="font-mono">{(deployment.pass_criteria.max_dd * 100).toFixed(1)}%</span>
+              </div>
+            )}
+            {deployment.pass_criteria?.max_daily_loss !== undefined && (
+              <div className="flex justify-between items-center p-3 bg-muted/30 rounded">
+                <span className="text-sm text-muted-foreground">Max Daily Loss</span>
+                <span className="font-mono">${deployment.pass_criteria.max_daily_loss}</span>
+              </div>
+            )}
+            {deployment.pass_criteria?.min_trades !== undefined && (
+              <div className="flex justify-between items-center p-3 bg-muted/30 rounded">
+                <span className="text-sm text-muted-foreground">Min Trades Required</span>
+                <span className="font-mono">{deployment.pass_criteria.min_trades}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
