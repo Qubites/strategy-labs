@@ -50,7 +50,23 @@ export default function Bots() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setBots((data as BotWithDetails[]) || []);
+      
+      // Load paper deployments for running status
+      const botIds = (data || []).map(b => b.id);
+      const { data: paperDeps } = await supabase
+        .from('paper_deployments')
+        .select('id, bot_id, status')
+        .in('bot_id', botIds)
+        .eq('status', 'running');
+      
+      const paperMap = new Map((paperDeps || []).map(p => [p.bot_id, p]));
+      
+      const enrichedBots = (data || []).map(bot => ({
+        ...bot,
+        _paperDeployment: paperMap.get(bot.id),
+      }));
+      
+      setBots(enrichedBots as any);
     } catch (error) {
       console.error('Error loading bots:', error);
       toast.error('Failed to load bots');
@@ -231,6 +247,14 @@ export default function Bots() {
                               <Copy className="w-4 h-4 mr-2" />
                               Duplicate
                             </DropdownMenuItem>
+                            {(bot as any)._paperDeployment && (
+                              <DropdownMenuItem asChild>
+                                <Link to={`/paper/${(bot as any)._paperDeployment.id}`}>
+                                  <FileCheck className="w-4 h-4 mr-2" />
+                                  View Paper Trading
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => handleArchive(bot.id)}
