@@ -123,7 +123,9 @@ export type Database = {
         Row: {
           bot_id: string
           created_at: string
+          experiment_group_id: string | null
           id: string
+          is_champion: boolean
           lifecycle_status: string
           params_hash: string
           params_json: string
@@ -135,7 +137,9 @@ export type Database = {
         Insert: {
           bot_id: string
           created_at?: string
+          experiment_group_id?: string | null
           id?: string
+          is_champion?: boolean
           lifecycle_status?: string
           params_hash: string
           params_json: string
@@ -147,7 +151,9 @@ export type Database = {
         Update: {
           bot_id?: string
           created_at?: string
+          experiment_group_id?: string | null
           id?: string
+          is_champion?: boolean
           lifecycle_status?: string
           params_hash?: string
           params_json?: string
@@ -162,6 +168,13 @@ export type Database = {
             columns: ["bot_id"]
             isOneToOne: false
             referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_versions_experiment_group_id_fkey"
+            columns: ["experiment_group_id"]
+            isOneToOne: false
+            referencedRelation: "experiment_groups"
             referencedColumns: ["id"]
           },
         ]
@@ -249,6 +262,67 @@ export type Database = {
         }
         Relationships: []
       }
+      experiment_groups: {
+        Row: {
+          champion_version_id: string | null
+          created_at: string
+          dataset_id: string | null
+          id: string
+          name: string
+          objective_config: Json
+          session: string
+          template_id: string
+          timeframe: string
+          updated_at: string
+        }
+        Insert: {
+          champion_version_id?: string | null
+          created_at?: string
+          dataset_id?: string | null
+          id?: string
+          name: string
+          objective_config?: Json
+          session?: string
+          template_id: string
+          timeframe?: string
+          updated_at?: string
+        }
+        Update: {
+          champion_version_id?: string | null
+          created_at?: string
+          dataset_id?: string | null
+          id?: string
+          name?: string
+          objective_config?: Json
+          session?: string
+          template_id?: string
+          timeframe?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "experiment_groups_champion_version_id_fkey"
+            columns: ["champion_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "experiment_groups_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "experiment_groups_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       instruments: {
         Row: {
           created_at: string
@@ -275,6 +349,82 @@ export type Database = {
           symbol?: string
         }
         Relationships: []
+      }
+      iterations: {
+        Row: {
+          accepted: boolean
+          ai_rationale: string | null
+          child_version_id: string
+          created_at: string
+          experiment_group_id: string
+          gate_results: Json | null
+          id: string
+          iteration_number: number
+          metric_after: Json | null
+          metric_before: Json | null
+          param_diff: Json | null
+          parent_version_id: string | null
+          reject_reason: string | null
+          risk_diff: Json | null
+          trigger_type: string
+        }
+        Insert: {
+          accepted?: boolean
+          ai_rationale?: string | null
+          child_version_id: string
+          created_at?: string
+          experiment_group_id: string
+          gate_results?: Json | null
+          id?: string
+          iteration_number?: number
+          metric_after?: Json | null
+          metric_before?: Json | null
+          param_diff?: Json | null
+          parent_version_id?: string | null
+          reject_reason?: string | null
+          risk_diff?: Json | null
+          trigger_type?: string
+        }
+        Update: {
+          accepted?: boolean
+          ai_rationale?: string | null
+          child_version_id?: string
+          created_at?: string
+          experiment_group_id?: string
+          gate_results?: Json | null
+          id?: string
+          iteration_number?: number
+          metric_after?: Json | null
+          metric_before?: Json | null
+          param_diff?: Json | null
+          parent_version_id?: string | null
+          reject_reason?: string | null
+          risk_diff?: Json | null
+          trigger_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "iterations_child_version_id_fkey"
+            columns: ["child_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "iterations_experiment_group_id_fkey"
+            columns: ["experiment_group_id"]
+            isOneToOne: false
+            referencedRelation: "experiment_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "iterations_parent_version_id_fkey"
+            columns: ["parent_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       live_candidates: {
         Row: {
@@ -655,6 +805,80 @@ export type Database = {
             columns: ["deployment_id"]
             isOneToOne: false
             referencedRelation: "paper_deployments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_states: {
+        Row: {
+          auto_mode: boolean
+          bot_id: string
+          created_at: string
+          current_step: string
+          experiment_group_id: string | null
+          id: string
+          last_run_id: string | null
+          last_version_id: string | null
+          max_iterations: number
+          mutation_aggressiveness: number
+          stop_conditions: Json
+          updated_at: string
+        }
+        Insert: {
+          auto_mode?: boolean
+          bot_id: string
+          created_at?: string
+          current_step?: string
+          experiment_group_id?: string | null
+          id?: string
+          last_run_id?: string | null
+          last_version_id?: string | null
+          max_iterations?: number
+          mutation_aggressiveness?: number
+          stop_conditions?: Json
+          updated_at?: string
+        }
+        Update: {
+          auto_mode?: boolean
+          bot_id?: string
+          created_at?: string
+          current_step?: string
+          experiment_group_id?: string | null
+          id?: string
+          last_run_id?: string | null
+          last_version_id?: string | null
+          max_iterations?: number
+          mutation_aggressiveness?: number
+          stop_conditions?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_states_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: true
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_states_experiment_group_id_fkey"
+            columns: ["experiment_group_id"]
+            isOneToOne: false
+            referencedRelation: "experiment_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_states_last_run_id_fkey"
+            columns: ["last_run_id"]
+            isOneToOne: false
+            referencedRelation: "runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_states_last_version_id_fkey"
+            columns: ["last_version_id"]
+            isOneToOne: false
+            referencedRelation: "bot_versions"
             referencedColumns: ["id"]
           },
         ]
