@@ -20,6 +20,7 @@ const navigation = [
   { name: 'Bots', href: '/bots', icon: Bot },
   { name: 'Runs', href: '/runs', icon: Play },
   { name: 'Experiments', href: '/experiments', icon: FlaskConical },
+  { name: 'Experiment Groups', href: '/experiment-groups', icon: Brain },
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
 ];
 

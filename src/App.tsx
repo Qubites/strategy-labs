@@ -15,6 +15,8 @@ import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import Leaderboard from "./pages/Leaderboard";
 import Experiments from "./pages/Experiments";
+import ExperimentGroupsPage from "./pages/ExperimentGroupsPage";
+import ExperimentGroupDetail from "./pages/ExperimentGroupDetail";
 import AutoTuner from "./pages/AutoTuner";
 import PaperTrading from "./pages/PaperTrading";
 import NotFound from "./pages/NotFound";
@@ -41,6 +43,8 @@ const App = () => (
           <Route path="/runs/:id" element={<RunDetail />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/experiments" element={<Experiments />} />
+          <Route path="/experiment-groups" element={<ExperimentGroupsPage />} />
+          <Route path="/experiments/:id" element={<ExperimentGroupDetail />} />
           <Route path="/paper/:id" element={<PaperTrading />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
