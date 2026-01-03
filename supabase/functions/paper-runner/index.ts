@@ -194,8 +194,8 @@ async function processDeployment(
     { hour, minute, dayOfWeek, isMarketOpen, force_trade }
   );
 
-  // If market closed and not forcing a trade, exit early but still record status
-  if (!isMarketOpen && !force_trade) {
+  // If market closed, exit early - including for force trades
+  if (!isMarketOpen) {
     await supabase.from('paper_deployments').update({
       last_runner_log: {
         ts: new Date().toISOString(),
@@ -203,6 +203,21 @@ async function processDeployment(
         market_open: false
       }
     }).eq('id', deployment_id);
+
+    // REJECT force trades during closed markets - orders would queue until open
+    if (force_trade) {
+      await logToDb(supabase, deployment_id, 'error', 
+        `Cannot place test trade: market is closed (ET ${hour}:${minute.toString().padStart(2, '0')})`,
+        { force_trade, hour, minute, dayOfWeek }
+      );
+      return { 
+        success: false, 
+        error: 'Market is closed - test trades are only allowed during Regular Trading Hours (9:30 AM - 4:00 PM ET, Mon-Fri)',
+        market_open: false,
+        et_hour: hour,
+        et_minute: minute
+      };
+    }
 
     return { 
       success: true, 

@@ -131,10 +131,12 @@ export default function PaperTrading() {
         body: { deployment_id: id, force_trade: side },
       });
       if (error) throw error;
-      if (data?.order_placed) {
+      if (data?.success === false) {
+        toast.error(data.error || 'Trade not allowed');
+      } else if (data?.order_placed) {
         toast.success(`Test ${side} trade placed successfully!`);
       } else {
-        toast.info(`Trade not placed: ${data?.signal_reason || 'unknown reason'}`);
+        toast.info(`Trade not placed: ${data?.signal_reason || data?.message || 'unknown reason'}`);
       }
       loadDeployment();
     } catch (error) {
@@ -194,6 +196,20 @@ export default function PaperTrading() {
   // Parse last runner log for status display
   const lastLog = deployment?.last_runner_log;
 
+  // Check if market is currently open (RTH: 9:30 AM - 4:00 PM ET, Mon-Fri)
+  function isMarketOpen(): boolean {
+    const now = new Date();
+    const etOptions = { timeZone: 'America/New_York' };
+    const etString = now.toLocaleString('en-US', etOptions);
+    const etDate = new Date(etString);
+    const hour = etDate.getHours();
+    const minute = etDate.getMinutes();
+    const dayOfWeek = etDate.getDay();
+    
+    return dayOfWeek >= 1 && dayOfWeek <= 5 && 
+      ((hour === 9 && minute >= 30) || (hour >= 10 && hour < 16));
+  }
+
   if (loading) {
     return (
       <MainLayout>
@@ -242,9 +258,9 @@ export default function PaperTrading() {
             <Button 
               variant="outline" 
               onClick={() => handleForceTrade('long')} 
-              disabled={!!forcingTrade}
-              className="gap-2 border-success/50 text-success hover:bg-success/10"
-              title="Force a test LONG trade to verify Alpaca connectivity"
+              disabled={!!forcingTrade || !isMarketOpen()}
+              className="gap-2 border-success/50 text-success hover:bg-success/10 disabled:opacity-50"
+              title={isMarketOpen() ? "Force a test LONG trade to verify Alpaca connectivity" : "Market closed - testing disabled"}
             >
               {forcingTrade === 'long' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               Test Long
@@ -252,9 +268,9 @@ export default function PaperTrading() {
             <Button 
               variant="outline" 
               onClick={() => handleForceTrade('short')} 
-              disabled={!!forcingTrade}
-              className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10"
-              title="Force a test SHORT trade to verify Alpaca connectivity"
+              disabled={!!forcingTrade || !isMarketOpen()}
+              className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              title={isMarketOpen() ? "Force a test SHORT trade to verify Alpaca connectivity" : "Market closed - testing disabled"}
             >
               {forcingTrade === 'short' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               Test Short
