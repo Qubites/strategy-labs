@@ -51,7 +51,30 @@ serve(async (req) => {
 
     if (versionError || !version) throw new Error('Version not found');
 
-    if (version.lifecycle_status !== 'BACKTEST_WINNER') {
+    // If already running paper trading, return the existing deployment
+    if (version.lifecycle_status === 'PAPER_RUNNING') {
+      const { data: existingDeployment } = await supabase
+        .from('paper_deployments')
+        .select('*')
+        .eq('bot_version_id', bot_version_id)
+        .eq('status', 'running')
+        .single();
+
+      if (existingDeployment) {
+        console.log(`Paper trading already running for version ${bot_version_id}, returning existing deployment`);
+        return new Response(JSON.stringify({
+          success: true,
+          deployment_id: existingDeployment.id,
+          status: 'already_running',
+          message: 'Paper trading is already running for this version'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Only BACKTEST_WINNER can start new paper trading
+    if (version.lifecycle_status !== 'BACKTEST_WINNER' && version.lifecycle_status !== 'PAPER_RUNNING') {
       throw new Error(`Version must be BACKTEST_WINNER to start paper trading. Current status: ${version.lifecycle_status}`);
     }
 
